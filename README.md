@@ -17,12 +17,12 @@
 ### Features
 
 - ⚡ **100% On-Device & Private**: Neural facial embeddings (ArcFace 512-D) and detection run completely offline on your CPU with AVX2/FMA hardware acceleration.
-- 🎯 **Lockscreen-Only Dynamic Card**: Elegant lockscreen card overlay that renders during authentication and strictly remains off your desktop while unlocked.
+- **Lockscreen-Only Dynamic Card**: Elegant lockscreen card overlay that renders during authentication and strictly remains off your desktop while unlocked.
 - ⚡ **Instant Idle-Wake Detection**: Tracks lockscreen interaction via ultra-fast hardware idle monitoring (`XScreenSaverQueryInfo`) and D-Bus signals so returning to an auto-locked PC immediately triggers Face ID scanning.
 - ⌨️ **Kernel-Level Keystroke Injection**: Seamlessly types your unlock credentials directly into the screensaver via `/dev/uinput` virtual keyboard subsystem (compatible with both X11 and Wayland).
-- 🛡️ **Military-Grade AES-256-GCM Encryption**: User passwords and facial embedding vectors are encrypted at rest with PBKDF2 (100,000 rounds) key derivation, with automatic memory zeroing after injection.
+- **Military-Grade AES-256-GCM Encryption**: User passwords and facial embedding vectors are encrypted at rest with PBKDF2 (100,000 rounds) key derivation, with automatic memory zeroing after injection.
 - 👁️ **Multi-Cue Anti-Spoofing Liveness**: Comprehensive anti-spoofing engine detecting screen glare, bezel framing, planar homography, and blink dynamics to prevent photo or video attacks.
-- 🧪 **Face Lab & Enrollment Wizard**: Guided 5-pose face capture wizard with live feedback, visual distance gauges, and real-time similarity metrics.
+- **Face Lab & Enrollment Wizard**: Guided 5-pose face capture wizard with live feedback, visual distance gauges, and real-time similarity metrics.
 
 ---
 
