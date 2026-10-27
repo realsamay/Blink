@@ -37,6 +37,13 @@ class SettingsWindow(Gtk.Window):
         self.set_default_size(880, 680)
         self.set_position(Gtk.WindowPosition.CENTER)
 
+        icon_path = os.path.join(os.path.dirname(__file__), "..", "resources", "appicon.png")
+        if os.path.exists(icon_path):
+            try:
+                self.set_icon_from_file(icon_path)
+            except Exception:
+                pass
+
         self.settings = BlinkSettings.load()
         self.camera = CameraManager(device_index=self.settings.camera_index)
         self.detector = FaceDetector()

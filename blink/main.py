@@ -21,6 +21,9 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gtk, GLib
 
+GLib.set_prgname("blink")
+GLib.set_application_name("Blink")
+
 from blink.core.config import BlinkSettings, CONFIG_DIR
 from blink.core.crypto import SecureCredentialManager, SecureFaceStore
 from blink.core.coordinator import FaceUnlockCoordinator
@@ -55,6 +58,7 @@ def run_daemon():
 
 
 def run_settings():
+    install_desktop_entry()
     win = SettingsWindow()
     win.connect("destroy", Gtk.main_quit)
     win.show_all()
@@ -83,7 +87,82 @@ def run_status():
     print("=" * 50)
 
 
+def install_desktop_entry():
+    """Installs Blink into the system application menu and user desktop."""
+    app_dir = Path.home() / ".local" / "share" / "applications"
+    app_dir.mkdir(parents=True, exist_ok=True)
+    bin_path = Path.home() / "blink" / "bin" / "blink"
+    icon_path = Path.home() / "blink" / "blink" / "resources" / "appicon.png"
+    svg_icon = Path.home() / "blink" / "blink" / "resources" / "blink-logo.svg"
+
+    # Install icons into hicolor
+    hicolor_512 = Path.home() / ".local" / "share" / "icons" / "hicolor" / "512x512" / "apps"
+    hicolor_svg = Path.home() / ".local" / "share" / "icons" / "hicolor" / "scalable" / "apps"
+    hicolor_512.mkdir(parents=True, exist_ok=True)
+    hicolor_svg.mkdir(parents=True, exist_ok=True)
+    import shutil
+    if icon_path.exists():
+        try:
+            shutil.copy2(icon_path, hicolor_512 / "blink.png")
+        except Exception:
+            pass
+    if svg_icon.exists():
+        try:
+            shutil.copy2(svg_icon, hicolor_svg / "blink.svg")
+        except Exception:
+            pass
+
+    app_entry = f"""[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Blink
+GenericName=Face ID
+Comment=Native Face ID Biometric Authentication for Linux
+Exec={bin_path} settings
+Icon={icon_path}
+Terminal=false
+StartupNotify=true
+StartupWMClass=blink
+Categories=Utility;Security;Settings;System;GTK;
+Keywords=face;id;unlock;biometric;security;blink;camera;
+Actions=DaemonRestart;LockscreenTest;
+
+[Desktop Action DaemonRestart]
+Name=Restart Face ID Daemon
+Exec=systemctl --user restart blink.service
+
+[Desktop Action LockscreenTest]
+Name=Test Dynamic Island
+Exec={bin_path} test-scan
+"""
+    app_desktop_file = app_dir / "blink.desktop"
+    app_desktop_file.write_text(app_entry, encoding="utf-8")
+    app_desktop_file.chmod(0o755)
+
+    # Desktop shortcut
+    desktop_dir = Path.home() / "Desktop"
+    if desktop_dir.is_dir():
+        desktop_shortcut = desktop_dir / "blink.desktop"
+        desktop_shortcut.write_text(app_entry, encoding="utf-8")
+        desktop_shortcut.chmod(0o755)
+        try:
+            import subprocess
+            subprocess.run(["gio", "set", str(desktop_shortcut), "metadata::trusted", "true"], check=False)
+        except Exception:
+            pass
+
+    try:
+        import subprocess
+        subprocess.run(["update-desktop-database", str(app_dir)], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["gtk-update-icon-cache", "-f", "-t", str(Path.home() / ".local" / "share" / "icons" / "hicolor")], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+    print(f"[Blink] System application menu entry installed at: {app_desktop_file}")
+
+
 def setup_autostart():
+    install_desktop_entry()
     autostart_dir = Path.home() / ".config" / "autostart"
     autostart_dir.mkdir(parents=True, exist_ok=True)
 
@@ -124,6 +203,7 @@ def main():
     subparsers.add_parser("settings", help="Open Blink Settings & Face Lab GUI")
     subparsers.add_parser("status", help="Show current Blink status and configuration")
     subparsers.add_parser("autostart", help="Configure Blink to launch on user login")
+    subparsers.add_parser("install-desktop", help="Install Blink into system application menu and desktop")
     subparsers.add_parser("test-scan", help="Test Face ID Dynamic Island scan & unlock animation on desktop")
 
     args = parser.parse_args()
@@ -134,6 +214,8 @@ def main():
         run_status()
     elif args.command == "autostart":
         setup_autostart()
+    elif args.command == "install-desktop":
+        install_desktop_entry()
     elif args.command == "test-scan":
         run_test_scan()
     else:

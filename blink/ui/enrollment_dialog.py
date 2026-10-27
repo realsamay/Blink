@@ -51,6 +51,13 @@ class EnrollmentDialog(Gtk.Dialog):
         self.set_resizable(False)
         self.set_position(Gtk.WindowPosition.CENTER_ON_PARENT)
 
+        icon_path = os.path.join(os.path.dirname(__file__), "..", "resources", "appicon.png")
+        if os.path.exists(icon_path):
+            try:
+                self.set_icon_from_file(icon_path)
+            except Exception:
+                pass
+
         self.camera = camera or CameraManager()
         self.detector = FaceDetector()
         self.aligner = FaceAligner()
