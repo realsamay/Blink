@@ -1,0 +1,16 @@
+[Unit]
+Description=Blink Face Unlock Daemon
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=%h/blink/bin/blink daemon
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=3
+Environment=PYTHONPATH=%h/blink
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=%h/.Xauthority
+
+[Install]
+WantedBy=default.target

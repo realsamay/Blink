@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+export PYTHONUNBUFFERED=1
+export PYTHONPATH="/home/samayy/blink:${PYTHONPATH}"
+exec /home/samayy/blink/.venv/bin/python -u /home/samayy/blink/blink/main.py "$@"

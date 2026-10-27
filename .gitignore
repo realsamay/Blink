@@ -1,0 +1,32 @@
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# User data & credentials (never commit sensitive user data)
+credentials.enc
+faces.enc
+settings.json
+*.lock
+
+# Temporary/large models & archives (>100MB)
+models/*.zip
+models/1k3d68.onnx
+*.zip
+*.tar.gz
+
+# System / editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
