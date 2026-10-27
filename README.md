@@ -1,7 +1,7 @@
 # Blink
 
 <p align="center">
-  <img src="blink/resources/appicon.png" alt="Blink Logo" width="128" />
+  <img src="blink/resources/final.png" alt="Blink Logo" width="128" />
   <br>
   <b>Native Face ID & Biometric Screen Unlock for Linux</b>
   <br>
