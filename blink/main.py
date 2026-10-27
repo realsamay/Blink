@@ -186,8 +186,9 @@ X-GNOME-Autostart-enabled=true
 
 
 def run_test_scan():
-    print("[Blink] Previewing Face ID Dynamic Island on desktop...")
+    print("[Blink] Previewing Face ID squarish card animation on desktop...")
     overlay = NotchOverlayWindow()
+    overlay._is_desktop_preview = True
     coordinator = FaceUnlockCoordinator(overlay=overlay)
     coordinator.test_scan()
     # Quit GTK main loop 6 seconds after scan test concludes

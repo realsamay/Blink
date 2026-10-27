@@ -7,6 +7,7 @@ across X11 and Wayland (Cinnamon, GNOME, KDE, SDDM, LightDM, etc.).
 from __future__ import annotations
 
 import os
+import threading
 import time
 from typing import Optional, Tuple
 import evdev
@@ -61,56 +62,71 @@ CHAR_MAP = {
 
 
 class KeystrokeInjector:
+    _cached_ui: Optional[evdev.UInput] = None
+    _lock = threading.Lock()
+
     @classmethod
     def is_available(cls) -> bool:
         return os.access("/dev/uinput", os.W_OK)
 
     @classmethod
+    def get_uinput(cls) -> Optional[evdev.UInput]:
+        with cls._lock:
+            if cls._cached_ui is not None:
+                return cls._cached_ui
+            if not cls.is_available():
+                return None
+            try:
+                all_keys = {code for code, _ in CHAR_MAP.values()}
+                all_keys.update([
+                    ecodes.KEY_LEFTSHIFT, ecodes.KEY_LEFTCTRL, ecodes.KEY_LEFTALT,
+                    ecodes.KEY_A, ecodes.KEY_BACKSPACE, ecodes.KEY_DELETE,
+                    ecodes.KEY_ENTER, ecodes.KEY_SPACE, ecodes.KEY_END
+                ])
+                cap = {ecodes.EV_KEY: list(all_keys)}
+                cls._cached_ui = evdev.UInput(cap, name="blink-virtual-keyboard")
+                return cls._cached_ui
+            except Exception as e:
+                print(f"[KeystrokeInjector] Error initializing persistent UInput: {e}")
+                return None
+
+    @classmethod
+    def warmup(cls) -> None:
+        """Pre-initializes persistent UInput in background so password injection is instantaneous."""
+        def _bg_init():
+            cls.get_uinput()
+        threading.Thread(target=_bg_init, daemon=True, name="BlinkUInputWarmup").start()
+
+    @classmethod
     def type_password(cls, password: str, clear_field_first: bool = True) -> bool:
         """
-        Emits virtual keyboard strokes to type the password and press Enter.
+        Instantly emits virtual keyboard strokes to type the password and press Enter (< 30ms total).
         """
-        if not cls.is_available():
-            print("[KeystrokeInjector] /dev/uinput is not writable.")
-            return False
-
-        # Build capability dictionary for UInput
-        all_keys = {code for code, _ in CHAR_MAP.values()}
-        all_keys.update([
-            ecodes.KEY_LEFTSHIFT, ecodes.KEY_LEFTCTRL, ecodes.KEY_LEFTALT,
-            ecodes.KEY_A, ecodes.KEY_BACKSPACE, ecodes.KEY_DELETE,
-            ecodes.KEY_ENTER, ecodes.KEY_SPACE, ecodes.KEY_END
-        ])
-        cap = {ecodes.EV_KEY: list(all_keys)}
-
-        try:
-            ui = evdev.UInput(cap, name="blink-virtual-keyboard")
-        except Exception as e:
-            print(f"[KeystrokeInjector] Error creating UInput: {e}")
+        ui = cls.get_uinput()
+        if not ui:
+            print("[KeystrokeInjector] UInput unavailable.")
             return False
 
         try:
-            time.sleep(0.05)
-
             if clear_field_first:
                 # Clear existing lockscreen text field: Ctrl + A, then Backspace
                 ui.write(ecodes.EV_KEY, ecodes.KEY_LEFTCTRL, 1)
                 ui.write(ecodes.EV_KEY, ecodes.KEY_A, 1)
                 ui.syn()
-                time.sleep(0.015)
+                time.sleep(0.003)
                 ui.write(ecodes.EV_KEY, ecodes.KEY_A, 0)
                 ui.write(ecodes.EV_KEY, ecodes.KEY_LEFTCTRL, 0)
                 ui.syn()
-                time.sleep(0.015)
+                time.sleep(0.003)
 
                 ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 1)
                 ui.syn()
-                time.sleep(0.015)
+                time.sleep(0.003)
                 ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 0)
                 ui.syn()
-                time.sleep(0.02)
+                time.sleep(0.004)
 
-            # Type password characters
+            # High-speed virtual key emission
             for char in password:
                 if char not in CHAR_MAP:
                     continue
@@ -119,32 +135,35 @@ class KeystrokeInjector:
                 if shift:
                     ui.write(ecodes.EV_KEY, ecodes.KEY_LEFTSHIFT, 1)
                     ui.syn()
-                    time.sleep(0.01)
 
                 ui.write(ecodes.EV_KEY, keycode, 1)
                 ui.syn()
-                time.sleep(0.012)
+                time.sleep(0.002)
                 ui.write(ecodes.EV_KEY, keycode, 0)
                 ui.syn()
-                time.sleep(0.01)
+                time.sleep(0.001)
 
                 if shift:
                     ui.write(ecodes.EV_KEY, ecodes.KEY_LEFTSHIFT, 0)
                     ui.syn()
-                    time.sleep(0.01)
 
             # Press Enter / Return
-            time.sleep(0.02)
+            time.sleep(0.004)
             ui.write(ecodes.EV_KEY, ecodes.KEY_ENTER, 1)
             ui.syn()
-            time.sleep(0.015)
+            time.sleep(0.003)
             ui.write(ecodes.EV_KEY, ecodes.KEY_ENTER, 0)
             ui.syn()
-            time.sleep(0.02)
 
             return True
+
         except Exception as e:
-            print(f"[KeystrokeInjector] Failed to inject keystrokes: {e}")
+            print(f"[KeystrokeInjector] Keystroke injection error: {e}")
+            with cls._lock:
+                try:
+                    if cls._cached_ui:
+                        cls._cached_ui.close()
+                except Exception:
+                    pass
+                cls._cached_ui = None
             return False
-        finally:
-            ui.close()

@@ -55,6 +55,7 @@ class FaceUnlockCoordinator:
         self.has_auto_retried_for_current_lock = False
         self.status_message = "Idle"
         self.last_outcome: Optional[str] = None
+        KeystrokeInjector.warmup()
 
     def ensure_overlay(self) -> NotchOverlayWindow:
         if self.overlay is None or getattr(self.overlay, "_is_dead", False):
@@ -80,6 +81,7 @@ class FaceUnlockCoordinator:
 
     def _handle_locked(self) -> None:
         print("[Coordinator] Detected screen locked.")
+        KeystrokeInjector.warmup()
         self.has_armed_for_current_lock = False
         self.has_auto_retried_for_current_lock = False
         self.cancel_scan()
@@ -373,24 +375,18 @@ class FaceUnlockCoordinator:
                     self.status_message = f"Matched {top_identity['name']}"
                     self.last_outcome = f"Matched {top_identity['name']} at {centroid_sim:.3f}"
 
-                    # Show Apple unlock animation on Notch Overlay while STILL on screensaver!
+                    # Trigger unlock animation on overlay card
                     if self.settings.show_unlock_animation and self.overlay and not getattr(self.overlay, "_is_dead", False):
                         GLib.idle_add(self.overlay.finish_success)
 
-                    # Hold on lockscreen for 1.2s so the user clearly perceives the green checkmark & 'Unlocked'
-                    time.sleep(1.2)
-
-                    # Cleanly close overlay right before password injection to prevent X11 destroyed window error
-                    if self.overlay and not getattr(self.overlay, "_is_dead", False):
-                        overlay_to_close = self.overlay
-                        self.overlay = None
-                        GLib.idle_add(overlay_to_close.clean_close)
-
-                    # Inject stored password only if screen is actually locked
+                    # Instantly type password the microsecond face is confirmed (0ms delay!)
                     if LockMonitor.is_screen_actually_locked():
                         password = SecureCredentialManager.read_password()
                         if password:
                             KeystrokeInjector.type_password(password)
+                    elif force:
+                        # For desktop preview test-scan, hold briefly so user sees the unlock animation
+                        time.sleep(1.2)
 
                     scan_outcome = "matched"
                     break

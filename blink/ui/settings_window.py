@@ -138,8 +138,8 @@ class SettingsWindow(Gtk.Window):
 
         vbox.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 0)
 
-        # Live Dynamic Island Test Scan
-        btn_test_island = Gtk.Button(label="Preview Apple Dynamic Island (Test Scan on Desktop)")
+        # Live Test Scan Preview
+        btn_test_island = Gtk.Button(label="Preview Face ID Card & Animations (Test Scan on Desktop)")
         btn_test_island.connect("clicked", self._on_test_dynamic_island)
         vbox.pack_start(btn_test_island, False, False, 0)
 
@@ -154,6 +154,7 @@ class SettingsWindow(Gtk.Window):
         from blink.core.coordinator import FaceUnlockCoordinator
         if not hasattr(self, "_test_coordinator") or self._test_coordinator is None:
             self._test_coordinator = FaceUnlockCoordinator()
+        self._test_coordinator.overlay._is_desktop_preview = True
         self._test_coordinator.test_scan()
 
     # --------------------------------------------------------------------------
