@@ -95,22 +95,24 @@ def install_desktop_entry():
     icon_path = Path.home() / "blink" / "blink" / "resources" / "appicon.png"
     svg_icon = Path.home() / "blink" / "blink" / "resources" / "blink-logo.svg"
 
-    # Install icons into hicolor
-    hicolor_512 = Path.home() / ".local" / "share" / "icons" / "hicolor" / "512x512" / "apps"
-    hicolor_svg = Path.home() / ".local" / "share" / "icons" / "hicolor" / "scalable" / "apps"
-    hicolor_512.mkdir(parents=True, exist_ok=True)
-    hicolor_svg.mkdir(parents=True, exist_ok=True)
+    # Install icons into hicolor at all standard resolutions
+    hicolor_base = Path.home() / ".local" / "share" / "icons" / "hicolor"
     import shutil
-    if icon_path.exists():
-        try:
-            shutil.copy2(icon_path, hicolor_512 / "blink.png")
-        except Exception:
-            pass
-    if svg_icon.exists():
-        try:
-            shutil.copy2(svg_icon, hicolor_svg / "blink.svg")
-        except Exception:
-            pass
+    try:
+        import cv2
+        if icon_path.exists():
+            orig_img = cv2.imread(str(icon_path), cv2.IMREAD_UNCHANGED)
+            for sz in [16, 24, 32, 48, 64, 128, 256, 512]:
+                sz_dir = hicolor_base / f"{sz}x{sz}" / "apps"
+                sz_dir.mkdir(parents=True, exist_ok=True)
+                resized = cv2.resize(orig_img, (sz, sz), interpolation=cv2.INTER_AREA)
+                cv2.imwrite(str(sz_dir / "blink.png"), resized)
+        if svg_icon.exists():
+            svg_dir = hicolor_base / "scalable" / "apps"
+            svg_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(svg_icon, svg_dir / "blink.svg")
+    except Exception:
+        pass
 
     app_entry = f"""[Desktop Entry]
 Version=1.0
