@@ -1,7 +1,7 @@
 """
 Blink Lockscreen Overlay Card.
-Presents a black squarish card with rounded corners in the center top under the camera area.
-Renders smooth 60 FPS animations (idle scanning, unlock success, failure) with zero text.
+Presents a compact, black squarish card with rounded corners in the center top under the camera.
+Renders smooth 60 FPS animations with fluid spring physics and zero text.
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ class OverlayPhase(Enum):
 
 
 class AnimationAssets:
-    """Pre-decodes and caches 60 FPS Cairo surfaces for seamless playback with zero lag."""
+    """Pre-decodes and caches 60 FPS Cairo surfaces for seamless, low-overhead playback."""
     _loaded = False
     _loading_lock = threading.Lock()
 
@@ -72,7 +72,7 @@ class AnimationAssets:
     failure_buffers: List[np.ndarray] = []
 
     @classmethod
-    def load_all(cls, target_size: int = 150) -> None:
+    def load_all(cls, target_size: int = 116) -> None:
         with cls._loading_lock:
             if cls._loaded:
                 return
@@ -91,7 +91,6 @@ class AnimationAssets:
                         break
                     resized = cv2.resize(frame, (target_size, target_size), interpolation=cv2.INTER_AREA)
                     bgra = cv2.cvtColor(resized, cv2.COLOR_BGR2BGRA)
-                    # Force 100% alpha on non-black content, seamless edge blending
                     surf = cairo.ImageSurface.create_for_data(bgra, cairo.FORMAT_ARGB32, target_size, target_size, target_size * 4)
                     surfs.append(surf)
                     bufs.append(bgra)
@@ -103,7 +102,7 @@ class AnimationAssets:
             cls.failure_surfaces, cls.failure_buffers = _load_video("unsuccessfulunlockanimation.mp4")
 
             cls._loaded = True
-            print(f"[AnimationAssets] Cached {len(cls.idle_surfaces)} idle, {len(cls.unlock_surfaces)} unlock, {len(cls.failure_surfaces)} failure surfaces.")
+            print(f"[AnimationAssets] Cached {len(cls.idle_surfaces)} idle, {len(cls.unlock_surfaces)} unlock, {len(cls.failure_surfaces)} failure surfaces (size: {target_size}x{target_size}).")
 
 
 class NotchOverlayWindow(Gtk.Window):
@@ -113,8 +112,13 @@ class NotchOverlayWindow(Gtk.Window):
         self._is_dead = False
         self._current_parent_xid = None
 
+        # Compact, balanced proportions: 116x116 card inside a 150x150 composited canvas
+        self.card_size = 116.0
+        self.corner_radius = 24.0
+        self.window_size = 150.0
+
         # Preload animations into memory
-        AnimationAssets.load_all(target_size=150)
+        AnimationAssets.load_all(target_size=int(self.card_size))
 
         # Window configuration
         self.set_decorated(False)
@@ -132,10 +136,6 @@ class NotchOverlayWindow(Gtk.Window):
         self.phase = OverlayPhase.CLOSED
         self.is_hovered = False
 
-        # Card dimensions: black squarish card with rounded corners
-        self.card_size = 150.0
-        self.corner_radius = 28.0
-
         # Animation tracking
         self.idle_frame_idx = 0
         self.unlock_frame_idx = 0
@@ -144,10 +144,14 @@ class NotchOverlayWindow(Gtk.Window):
         self.anim_tick = 0.0
         self.shake_decay = 0.0
 
-        # Pop-out physics: starts tucked under camera bezel, springs smoothly out
-        self.pop_progress = 0.0
-        self.target_y = 20.0
-        self.current_y = -self.card_size
+        # Authentic Apple spring dynamics (smooth bounce-in, liquid dismiss)
+        self.current_scale = 0.2
+        self.scale_velocity = 0.0
+        self.target_scale = 1.0
+        self.spring_k = 0.28
+        self.spring_damping = 0.68
+
+        self.target_y = 16.0
 
         # Event handling
         self.add_events(
@@ -162,9 +166,8 @@ class NotchOverlayWindow(Gtk.Window):
         self.connect("button-press-event", self.on_click)
         self.connect("destroy", self._on_destroy)
 
-        self.set_size_request(int(self.card_size), int(self.card_size))
+        self.set_size_request(int(self.window_size), int(self.window_size))
         self.realize()
-        self.apply_shape_mask()
         self.reposition()
 
         self._anim_running = False
@@ -191,33 +194,6 @@ class NotchOverlayWindow(Gtk.Window):
     def _stop_anim_loop(self) -> None:
         self._anim_running = False
 
-    def apply_shape_mask(self) -> None:
-        if getattr(self, "_is_dead", False):
-            return
-        w = int(self.card_size)
-        h = int(self.card_size)
-        rad = self.corner_radius
-        surf = cairo.ImageSurface(cairo.FORMAT_A1, w, h)
-        cr = cairo.Context(surf)
-        cr.set_operator(cairo.OPERATOR_CLEAR)
-        cr.paint()
-        cr.set_operator(cairo.OPERATOR_SOURCE)
-        cr.set_source_rgba(1, 1, 1, 1)
-
-        cr.new_sub_path()
-        cr.arc(w - rad, rad, rad, -math.pi / 2, 0)
-        cr.arc(w - rad, h - rad, rad, 0, math.pi / 2)
-        cr.arc(rad, h - rad, rad, math.pi / 2, math.pi)
-        cr.arc(rad, rad, rad, math.pi, 3 * math.pi / 2)
-        cr.close_path()
-        cr.fill()
-
-        try:
-            reg = Gdk.cairo_region_create_from_surface(surf)
-            self.shape_combine_region(reg)
-        except Exception:
-            pass
-
     def clean_close(self) -> None:
         self._is_dead = True
         self._stop_anim_loop()
@@ -227,6 +203,16 @@ class NotchOverlayWindow(Gtk.Window):
             self.destroy()
         except Exception:
             pass
+
+    def dismiss_and_close(self) -> None:
+        """Smoothly shrinks the card back into the camera notch before closing."""
+        if getattr(self, "_is_dead", False):
+            return
+        self.target_scale = 0.0
+        self.spring_k = 0.32
+        self.spring_damping = 0.65
+        # Fallback timeout in case animation loop ends
+        GLib.timeout_add(220, self.clean_close)
 
     def _on_destroy(self, widget):
         self._is_dead = True
@@ -254,13 +240,12 @@ class NotchOverlayWindow(Gtk.Window):
         monitor = display.get_primary_monitor() or display.get_monitor(0)
         if monitor:
             geom = monitor.get_geometry()
-            shake_x = math.sin(self.anim_tick * 28.0) * 8.0 * self.shake_decay
-            x = geom.x + (geom.width - int(self.card_size)) // 2 + int(shake_x)
-            y = int(self.current_y)
+            x = geom.x + (geom.width - int(self.window_size)) // 2
+            y = geom.y + int(self.target_y)
             try:
-                self.set_size_request(int(self.card_size), int(self.card_size))
+                self.set_size_request(int(self.window_size), int(self.window_size))
                 self.move(int(x), int(y))
-                self.resize(int(self.card_size), int(self.card_size))
+                self.resize(int(self.window_size), int(self.window_size))
             except Exception:
                 pass
 
@@ -295,17 +280,16 @@ class NotchOverlayWindow(Gtk.Window):
             display = screen.get_display()
             monitor = display.get_primary_monitor() or display.get_monitor(0)
             geom = monitor.get_geometry()
-            x = geom.x + (geom.width - int(self.card_size)) // 2
-            y = int(self.target_y)
+            x = geom.x + (geom.width - int(self.window_size)) // 2
+            y = geom.y + int(self.target_y)
             try:
-                print(f"[NotchOverlay] Reparenting squarish card {hex(xid)} into screensaver {hex(ss_xid)} at ({x}, {y})")
+                print(f"[NotchOverlay] Attaching popout card {hex(xid)} into screensaver {hex(ss_xid)} at ({x}, {y})")
                 x11.XReparentWindow(_X11_DISP, xid, ss_xid, int(x), int(y))
                 x11.XMapWindow(_X11_DISP, xid)
                 x11.XRaiseWindow(_X11_DISP, xid)
                 x11.XFlush(_X11_DISP)
                 self._current_parent_xid = ss_xid
                 self.show_all()
-                self.apply_shape_mask()
                 self.reposition()
             except Exception as e:
                 print(f"[NotchOverlay] Error reparenting to screensaver: {e}")
@@ -337,9 +321,11 @@ class NotchOverlayWindow(Gtk.Window):
             return
         self.phase = OverlayPhase.SCANNING
         self.idle_frame_idx = 0
-        self.pop_progress = 0.0
+        # Trigger smooth pop-in spring
+        self.current_scale = 0.2
+        self.scale_velocity = 0.0
+        self.target_scale = 1.0
         self.show_all()
-        self.apply_shape_mask()
         self.reposition()
         self.queue_draw()
         self._start_anim_loop()
@@ -349,22 +335,24 @@ class NotchOverlayWindow(Gtk.Window):
             self.hide()
             return
         self.phase = OverlayPhase.SCANNING
+        self.target_scale = 1.0
         self.show_all()
-        self.apply_shape_mask()
         self.reposition()
         self.queue_draw()
         self._flush_updates()
         self._start_anim_loop()
 
     def set_progress(self, progress: float, subtitle: Optional[str] = None) -> None:
-        # User requested no text/telemetry, animation alone conveys the status
+        # Zero text: pure animations convey all feedback
         pass
 
     def finish_success(self) -> None:
         self.phase = OverlayPhase.SUCCESS
         self.unlock_frame_idx = 0
+        self.target_scale = 1.0
+        # Give a slight gentle bounce upon success
+        self.scale_velocity = max(self.scale_velocity, 0.04)
         self.show_all()
-        self.apply_shape_mask()
         self.reposition()
         self.queue_draw()
         self._flush_updates()
@@ -375,7 +363,6 @@ class NotchOverlayWindow(Gtk.Window):
         self.failure_frame_idx = 0
         self.shake_decay = 1.0  # Trigger spring shake
         self.show_all()
-        self.apply_shape_mask()
         self.reposition()
         self.queue_draw()
         self._flush_updates()
@@ -402,15 +389,12 @@ class NotchOverlayWindow(Gtk.Window):
                 pass
 
     def disarm(self) -> bool:
-        self._stop_anim_loop()
-        self.phase = OverlayPhase.CLOSED
-        self.detach_from_screensaver()
-        self.hide()
+        self.dismiss_and_close()
         return False
 
     def _auto_collapse_if_unhovered(self) -> bool:
         if not self.is_hovered and self.phase in (OverlayPhase.FAILURE, OverlayPhase.SUCCESS):
-            self.disarm()
+            self.dismiss_and_close()
         return False
 
     def _on_anim_frame(self) -> bool:
@@ -432,21 +416,19 @@ class NotchOverlayWindow(Gtk.Window):
         try:
             self.anim_tick += 0.05
 
-            # 1. Pop-out physics interpolation (springs smoothly out from top bezel)
-            if self.pop_progress < 1.0:
-                self.pop_progress = min(1.0, self.pop_progress + 0.15)
-                # Cubic ease-out
-                ease = 1.0 - math.pow(1.0 - self.pop_progress, 3)
-                start_y = -self.card_size
-                self.current_y = start_y + (self.target_y - start_y) * ease
-                self.reposition()
-            else:
-                self.current_y = self.target_y
+            # 1. Authentic Apple Spring Scale Physics
+            force = (self.target_scale - self.current_scale) * self.spring_k
+            self.scale_velocity = (self.scale_velocity + force) * self.spring_damping
+            self.current_scale += self.scale_velocity
 
-            # 2. Shake decay
+            # If dismissing and fully shrunk, cleanly destroy
+            if self.target_scale == 0.0 and self.current_scale < 0.04:
+                self.clean_close()
+                return False
+
+            # 2. Shake decay for error feedback
             if self.shake_decay > 0:
                 self.shake_decay = max(0.0, self.shake_decay - 0.05)
-                self.reposition()
 
             # 3. Advance active animation frame index
             if self.phase == OverlayPhase.SCANNING:
@@ -488,6 +470,7 @@ class NotchOverlayWindow(Gtk.Window):
             self.hide()
             return False
 
+        # 1. Clear entire canvas to 100% transparent alpha
         cr.save()
         cr.set_operator(cairo.OPERATOR_SOURCE)
         cr.set_source_rgba(0.0, 0.0, 0.0, 0.0)
@@ -497,25 +480,36 @@ class NotchOverlayWindow(Gtk.Window):
 
         w = float(widget.get_allocated_width())
         h = float(widget.get_allocated_height())
+        cx = w / 2.0
+        cy = h / 2.0
+
+        card_w = self.card_size
+        card_h = self.card_size
         rad = self.corner_radius
 
-        # 1. Black Squarish Card Container with Rounded Corners
+        # 2. Apply spring scale and horizontal shake centered inside the canvas
+        shake_x = math.sin(self.anim_tick * 28.0) * 6.0 * self.shake_decay
         cr.save()
+        cr.translate(cx + shake_x, cy)
+        cr.scale(self.current_scale, self.current_scale)
+        cr.translate(-card_w / 2.0, -card_h / 2.0)
+
+        # 3. Compact Rounded Squircle Container Path
         cr.new_sub_path()
-        cr.arc(w - rad, rad, rad, -math.pi / 2, 0)
-        cr.arc(w - rad, h - rad, rad, 0, math.pi / 2)
-        cr.arc(rad, h - rad, rad, math.pi / 2, math.pi)
+        cr.arc(card_w - rad, rad, rad, -math.pi / 2, 0)
+        cr.arc(card_w - rad, card_h - rad, rad, 0, math.pi / 2)
+        cr.arc(rad, card_h - rad, rad, math.pi / 2, math.pi)
         cr.arc(rad, rad, rad, math.pi, 3 * math.pi / 2)
         cr.close_path()
 
-        # Deep obsidian black background
+        # Obsidian black glass background
         cr.set_source_rgba(0.02, 0.02, 0.03, 0.98)
         cr.fill_preserve()
 
-        # Clip content to rounded squarish card
+        # Clip content to rounded card
         cr.clip()
 
-        # 2. Render Active Animation Surface
+        # 4. Paint Active Animation Surface
         curr_surf: Optional[cairo.ImageSurface] = None
         if self.phase == OverlayPhase.SUCCESS and AnimationAssets.unlock_surfaces:
             curr_surf = AnimationAssets.unlock_surfaces[self.unlock_frame_idx]
@@ -530,22 +524,22 @@ class NotchOverlayWindow(Gtk.Window):
 
         cr.reset_clip()
 
-        # 3. Elegant Perimeter Border
+        # 5. Smooth High-DPI Border Stroke
         cr.new_sub_path()
-        cr.arc(w - rad, rad, rad, -math.pi / 2, 0)
-        cr.arc(w - rad, h - rad, rad, 0, math.pi / 2)
-        cr.arc(rad, h - rad, rad, math.pi / 2, math.pi)
+        cr.arc(card_w - rad, rad, rad, -math.pi / 2, 0)
+        cr.arc(card_w - rad, card_h - rad, rad, 0, math.pi / 2)
+        cr.arc(rad, card_h - rad, rad, math.pi / 2, math.pi)
         cr.arc(rad, rad, rad, math.pi, 3 * math.pi / 2)
         cr.close_path()
 
         if self.phase == OverlayPhase.SUCCESS:
-            cr.set_source_rgba(0.19, 0.82, 0.35, 0.85)  # Apple Green
+            cr.set_source_rgba(0.19, 0.82, 0.35, 0.90)  # Apple Green
             cr.set_line_width(2.0)
         elif self.phase == OverlayPhase.FAILURE:
-            cr.set_source_rgba(1.0, 0.27, 0.23, 0.85)  # Apple Red
+            cr.set_source_rgba(1.0, 0.27, 0.23, 0.90)  # Apple Red
             cr.set_line_width(2.0)
         else:
-            cr.set_source_rgba(0.25, 0.25, 0.30, 0.55)  # Subtle Dark Slate
+            cr.set_source_rgba(0.25, 0.25, 0.30, 0.60)  # Subtle Dark Slate
             cr.set_line_width(1.5)
         cr.stroke()
 
