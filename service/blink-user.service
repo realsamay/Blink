@@ -1,0 +1,11 @@
+[Unit]
+Description=Blink Face Authentication Daemon
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/env python3 -m blink.main
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target
