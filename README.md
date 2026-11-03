@@ -13,8 +13,19 @@
   <img src="https://img.shields.io/badge/Platforms-Linux%20%7C%20Windows-0078D6?style=flat" alt="Platforms" />
   <img src="https://img.shields.io/badge/Privacy-100%25%20On--Device-30D158?style=flat" alt="100% On-Device" />
   <img src="https://img.shields.io/badge/Latency-%3C%2025ms-FF9F0A?style=flat" alt="Latency" />
-  <img src="https://img.shields.io/badge/Tests-18%20Passing-30D158?style=flat" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-19%20Passing-30D158?style=flat" alt="Tests" />
+  <img src="https://img.shields.io/badge/Release-v2.1.0-blue?style=flat" alt="Release v2.1.0" />
   <img src="https://img.shields.io/badge/License-AGPLv3-0568FD?style=flat" alt="License" />
+</p>
+
+<p align="center">
+  <a href="https://github.com/realsamay/Blink/releases/download/v2.1.0/blink_2.1.0_amd64.deb">
+    <img src="https://img.shields.io/badge/Download%20.deb-Linux%20x64-E95420?style=for-the-badge&logo=ubuntu&logoColor=white" alt="Download .deb for Linux" />
+  </a>
+  &nbsp;
+  <a href="https://github.com/realsamay/Blink/releases/download/v2.1.0/Blink-Setup-x64.exe">
+    <img src="https://img.shields.io/badge/Download%20.exe-Windows%2010%2F11-0078D6?style=for-the-badge&logo=windows&logoColor=white" alt="Download .exe for Windows" />
+  </a>
 </p>
 
 ---
@@ -76,16 +87,24 @@ No external cloud servers. No telemetry. Your facial biometric vectors and unloc
 
 ## Installation & Setup
 
-### 🐧 Linux (Linux Mint, Ubuntu, Debian, Fedora, Arch)
+### 🐧 Linux (Linux Mint, Ubuntu, Debian, Pop!_OS)
 
-#### 1. Clone & Install Dependencies
+#### Option A: 1-Click Debian Package (.deb) — Recommended
+Download the latest pre-compiled binary package:
+```bash
+wget https://github.com/realsamay/Blink/releases/download/v2.1.0/blink_2.1.0_amd64.deb
+sudo apt install ./blink_2.1.0_amd64.deb
+```
+*(Or double-click `blink_2.1.0_amd64.deb` in your file manager to install via your distro's Software Center).*
+
+#### Option B: Build from Source
 ```bash
 git clone https://github.com/realsamay/Blink.git ~/.local/share/blink
 cd ~/.local/share/blink
 ./install.sh
 ```
 
-#### 2. Configure Password & Enroll Face
+#### Configure Password & Enroll Face
 ```bash
 blink settings
 ```
@@ -93,7 +112,7 @@ blink settings
 2. Open the **Your Face** tab, click **Enroll New Face**, and follow the 5-pose scan guide.
 3. Check the **Face Lab** tab for live confidence scores and real-time landmark tracking.
 
-#### 3. Enable Background Service
+#### Enable Background Service
 ```bash
 # Enable systemd user service (recommended)
 systemctl --user enable --now blink.service
@@ -104,9 +123,14 @@ blink autostart
 
 ---
 
-### 🪟 Windows (Windows 10 & Windows 11)
+### 🪟 Windows (Windows 10 & Windows 11 64-bit)
 
-#### 1. One-Click Setup
+#### Option A: 1-Click Setup Wizard (.exe) — Recommended
+1. Download [**`Blink-Setup-x64.exe`**](https://github.com/realsamay/Blink/releases/download/v2.1.0/Blink-Setup-x64.exe) from GitHub Releases.
+2. Double-click the installer and follow the modern setup wizard.
+3. The wizard bundles all neural models and automatically configures background daemon startup on user logon.
+
+#### Option B: Terminal Setup via Git
 Open PowerShell or Command Prompt as Administrator:
 ```powershell
 git clone https://github.com/realsamay/Blink.git C:\Users\$env:USERNAME\Blink
