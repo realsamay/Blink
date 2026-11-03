@@ -11,46 +11,54 @@ import threading
 import time
 from typing import Callable, Optional
 
-import pydbus
-from gi.repository import GLib
+from blink.system.platform_info import IS_WINDOWS
+
+if IS_WINDOWS:
+    from blink.system.lock_monitor_win import (
+        WindowsLockMonitor as LockMonitor,
+        get_system_idle_ms,
+    )
+else:
+    import pydbus
+    from gi.repository import GLib
 
 
-class XScreenSaverInfo(ctypes.Structure):
-    _fields_ = [
-        ("window", ctypes.c_ulong),
-        ("state", ctypes.c_int),
-        ("kind", ctypes.c_int),
-        ("til_or_since", ctypes.c_ulong),
-        ("idle", ctypes.c_ulong),
-        ("eventMask", ctypes.c_ulong),
-    ]
+    class XScreenSaverInfo(ctypes.Structure):
+        _fields_ = [
+            ("window", ctypes.c_ulong),
+            ("state", ctypes.c_int),
+            ("kind", ctypes.c_int),
+            ("til_or_since", ctypes.c_ulong),
+            ("idle", ctypes.c_ulong),
+            ("eventMask", ctypes.c_ulong),
+        ]
 
 
-try:
-    _x11 = ctypes.cdll.LoadLibrary("libX11.so.6")
-    _xss = ctypes.cdll.LoadLibrary("libXss.so.1")
-    _x11_dpy = _x11.XOpenDisplay(None)
-    _x11_root = _x11.XDefaultRootWindow(_x11_dpy) if _x11_dpy else None
-except Exception:
-    _x11 = None
-    _xss = None
-    _x11_dpy = None
-    _x11_root = None
-
-
-def get_system_idle_ms() -> int:
-    """Returns exact user idle time in milliseconds using XScreenSaverQueryInfo (<0.01ms)."""
-    if not _xss or not _x11_dpy or not _x11_root:
-        return 0
     try:
-        info = XScreenSaverInfo()
-        _xss.XScreenSaverQueryInfo(_x11_dpy, _x11_root, ctypes.byref(info))
-        return int(info.idle)
+        _x11 = ctypes.cdll.LoadLibrary("libX11.so.6")
+        _xss = ctypes.cdll.LoadLibrary("libXss.so.1")
+        _x11_dpy = _x11.XOpenDisplay(None)
+        _x11_root = _x11.XDefaultRootWindow(_x11_dpy) if _x11_dpy else None
     except Exception:
-        return 0
+        _x11 = None
+        _xss = None
+        _x11_dpy = None
+        _x11_root = None
 
 
-class LockMonitor:
+    def get_system_idle_ms() -> int:
+        """Returns exact user idle time in milliseconds using XScreenSaverQueryInfo (<0.01ms)."""
+        if not _xss or not _x11_dpy or not _x11_root:
+            return 0
+        try:
+            info = XScreenSaverInfo()
+            _xss.XScreenSaverQueryInfo(_x11_dpy, _x11_root, ctypes.byref(info))
+            return int(info.idle)
+        except Exception:
+            return 0
+
+
+class LinuxLockMonitor:
     def __init__(
         self,
         on_locked: Optional[Callable[[], None]] = None,
@@ -276,3 +284,7 @@ class LockMonitor:
             print("[LockMonitor] Screen unlocked.")
             if self.on_unlocked:
                 self.on_unlocked()
+
+
+if not IS_WINDOWS:
+    LockMonitor = LinuxLockMonitor

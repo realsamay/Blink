@@ -20,11 +20,20 @@ import cairo
 import cv2
 import numpy as np
 
-import gi
-gi.require_version("Gtk", "3.0")
-gi.require_version("Gdk", "3.0")
-gi.require_version("GdkPixbuf", "2.0")
-from gi.repository import Gtk, Gdk, GLib, GdkPixbuf
+from blink.system.platform_info import IS_WINDOWS
+
+if IS_WINDOWS:
+    from blink.ui.notch_overlay_win import (
+        WindowsNotchOverlayWindow as NotchOverlayWindow,
+        AnimationAssets,
+        OverlayPhase,
+    )
+else:
+    import gi
+    gi.require_version("Gtk", "3.0")
+    gi.require_version("Gdk", "3.0")
+    gi.require_version("GdkPixbuf", "2.0")
+    from gi.repository import Gtk, Gdk, GLib, GdkPixbuf
 
 try:
     x11 = ctypes.cdll.LoadLibrary("libX11.so.6")
@@ -105,7 +114,7 @@ class AnimationAssets:
             print(f"[AnimationAssets] Cached {len(cls.idle_surfaces)} idle, {len(cls.unlock_surfaces)} unlock, {len(cls.failure_surfaces)} failure surfaces (size: {target_size}x{target_size}).")
 
 
-class NotchOverlayWindow(Gtk.Window):
+class LinuxNotchOverlayWindow(Gtk.Window):
     def __init__(self, on_retry_clicked: Optional[Callable[[], None]] = None):
         super().__init__(type=Gtk.WindowType.POPUP)
         self.on_retry_clicked = on_retry_clicked
@@ -554,3 +563,7 @@ class NotchOverlayWindow(Gtk.Window):
 
         cr.restore()
         return False
+
+
+if not IS_WINDOWS:
+    NotchOverlayWindow = LinuxNotchOverlayWindow

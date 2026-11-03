@@ -16,6 +16,7 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
 
 from blink.core.config import CONFIG_DIR
+from blink.system.platform_info import get_machine_id, get_current_user
 
 CREDENTIALS_FILE = CONFIG_DIR / "credentials.enc"
 FACES_FILE = CONFIG_DIR / "faces.enc"
@@ -57,9 +58,8 @@ class SecureCredentialManager:
             # Generate or load active session key
             salt = cls._get_or_create_salt()
             # Derivation from machine-id + user for seamless session unlock
-            machine_id = Path("/etc/machine-id")
-            mid = machine_id.read_text().strip() if machine_id.exists() else "blink-default-id"
-            user = os.environ.get("USER", "default-user")
+            mid = get_machine_id()
+            user = get_current_user()
             session_key = cls.derive_key(f"{mid}:{user}")
         cls._cached_key = session_key
         cls._last_activity = time.time()

@@ -13,7 +13,20 @@ from typing import Optional, Dict, Any, List
 
 import cv2
 import numpy as np
-from gi.repository import GLib
+
+from blink.system.platform_info import IS_WINDOWS
+
+if IS_WINDOWS:
+    class WinGLib:
+        @staticmethod
+        def idle_add(func, *args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception:
+                return False
+    GLib = WinGLib()
+else:
+    from gi.repository import GLib
 
 from blink.core.config import BlinkSettings
 from blink.core.crypto import SecureCredentialManager, SecureFaceStore
@@ -89,16 +102,18 @@ class FaceUnlockCoordinator:
         self._wake_screensaver_dialog()
 
         # Brief settle loop allowing screensaver window to map
-        ss_xid = None
-        for _ in range(12):
-            time.sleep(0.1)
-            ss_xid = NotchOverlayWindow.find_screensaver_window_xid()
-            if ss_xid:
-                break
+        if not IS_WINDOWS:
+            ss_xid = None
+            for _ in range(12):
+                time.sleep(0.1)
+                finder = getattr(NotchOverlayWindow, "find_screensaver_window_xid", None)
+                ss_xid = finder() if finder else None
+                if ss_xid:
+                    break
 
-        # Attach overlay to screensaver window so it is guaranteed to draw in front
-        if ss_xid and self.overlay:
-            GLib.idle_add(self.overlay.attach_to_screensaver, ss_xid)
+            # Attach overlay to screensaver window so it is guaranteed to draw in front
+            if ss_xid and self.overlay:
+                GLib.idle_add(self.overlay.attach_to_screensaver, ss_xid)
 
         if "on_lock" in self.settings.unlock_triggers:
             self.arm_and_scan(auto_scan=True)
@@ -122,15 +137,17 @@ class FaceUnlockCoordinator:
         self.ensure_overlay()
         self._wake_screensaver_dialog()
 
-        ss_xid = None
-        for _ in range(12):
-            time.sleep(0.1)
-            ss_xid = NotchOverlayWindow.find_screensaver_window_xid()
-            if ss_xid:
-                break
+        if not IS_WINDOWS:
+            ss_xid = None
+            for _ in range(12):
+                time.sleep(0.1)
+                finder = getattr(NotchOverlayWindow, "find_screensaver_window_xid", None)
+                ss_xid = finder() if finder else None
+                if ss_xid:
+                    break
 
-        if ss_xid and self.overlay:
-            GLib.idle_add(self.overlay.attach_to_screensaver, ss_xid)
+            if ss_xid and self.overlay:
+                GLib.idle_add(self.overlay.attach_to_screensaver, ss_xid)
 
         if "on_wake" in self.settings.unlock_triggers:
             self.arm_and_scan(auto_scan=True)
@@ -138,7 +155,15 @@ class FaceUnlockCoordinator:
             self.arm_and_scan(auto_scan=False)
 
     def _wake_screensaver_dialog(self) -> None:
-        """Simulates activity on screensaver D-Bus to wake and focus the password prompt."""
+        """Simulates activity on lockscreen to wake and focus the password prompt."""
+        if IS_WINDOWS:
+            try:
+                from blink.system.keystroke_injector_win import WindowsKeystrokeInjector
+                WindowsKeystrokeInjector.wake_lockscreen()
+            except Exception:
+                pass
+            return
+
         try:
             import pydbus
             bus = pydbus.SessionBus()
@@ -169,15 +194,17 @@ class FaceUnlockCoordinator:
         self.ensure_overlay()
         self._wake_screensaver_dialog()
 
-        ss_xid = None
-        for _ in range(6):
-            ss_xid = NotchOverlayWindow.find_screensaver_window_xid()
-            if ss_xid:
-                break
-            time.sleep(0.05)
+        if not IS_WINDOWS:
+            ss_xid = None
+            for _ in range(6):
+                finder = getattr(NotchOverlayWindow, "find_screensaver_window_xid", None)
+                ss_xid = finder() if finder else None
+                if ss_xid:
+                    break
+                time.sleep(0.05)
 
-        if ss_xid and self.overlay:
-            GLib.idle_add(self.overlay.attach_to_screensaver, ss_xid)
+            if ss_xid and self.overlay:
+                GLib.idle_add(self.overlay.attach_to_screensaver, ss_xid)
 
         self.arm_and_scan(auto_scan=True)
 

@@ -7,11 +7,19 @@ across X11 and Wayland (Cinnamon, GNOME, KDE, SDDM, LightDM, etc.).
 from __future__ import annotations
 
 import os
+import sys
 import threading
 import time
 from typing import Optional, Tuple
-import evdev
-from evdev import ecodes
+
+from blink.system.platform_info import IS_WINDOWS
+
+if IS_WINDOWS:
+    from blink.system.keystroke_injector_win import WindowsKeystrokeInjector as KeystrokeInjector
+    CHAR_MAP = {}
+else:
+    import evdev
+    from evdev import ecodes
 
 
 # Character to (keycode, requires_shift) mapping
@@ -61,7 +69,7 @@ CHAR_MAP = {
 }
 
 
-class KeystrokeInjector:
+class LinuxKeystrokeInjector:
     _cached_ui: Optional[evdev.UInput] = None
     _lock = threading.Lock()
 
@@ -167,3 +175,7 @@ class KeystrokeInjector:
                     pass
                 cls._cached_ui = None
             return False
+
+
+if not IS_WINDOWS:
+    KeystrokeInjector = LinuxKeystrokeInjector

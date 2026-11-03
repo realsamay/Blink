@@ -3,16 +3,16 @@
 <p align="center">
   <img src="blink/resources/final.png" alt="Blink Logo" width="128" />
   <br>
-  <b>Native Face ID & Biometric Screen Unlock for Linux</b>
+  <b>Native Face ID & Biometric Screen Unlock for Linux & Windows</b>
   <br>
-  <i>Fast, secure, on-device facial authentication for Linux Mint, Ubuntu, Debian, Fedora, Arch, and all major desktop environments</i>
+  <i>Fast, secure, on-device facial authentication for Linux Mint, Ubuntu, Debian, Fedora, Arch, and Windows 10/11</i>
 </p>
 
 ---
 
 ## Overview
 
-**Blink** brings seamless, biometric Face ID to Linux desktops. It unlocks your system in the blink of an eye when you wake your PC, open your laptop lid, or touch your keyboard/mouse at the lockscreen — completely hands-free and private.
+**Blink** brings seamless, biometric Face ID to Linux and Windows desktops. It unlocks your system in the blink of an eye when you wake your PC, open your laptop lid, or touch your keyboard/mouse at the lockscreen — completely hands-free and private.
 
 ### Features
 
@@ -74,18 +74,25 @@ Commands:
 
 ## System Requirements
 
-- **Linux Distribution**: Linux Mint, Ubuntu, Debian, Fedora, Arch Linux, or any standard Linux distribution.
-- **Desktop Environments**: Cinnamon, GNOME, KDE Plasma, XFCE, MATE, and compatible screensavers.
+### Linux
+- **Linux Distribution**: Linux Mint, Ubuntu, Debian, Fedora, Arch Linux, or any modern 64-bit distro.
+- **Desktop Environments**: Cinnamon, GNOME, KDE Plasma, XFCE, MATE, and compatible lockscreens.
 - **Camera**: Any standard USB or built-in webcam (`/dev/video0`).
 - **Dependencies**: Python 3.10+, OpenCV, NumPy, PyGObject (GTK 3), evdev.
+
+### Windows
+- **Operating System**: Windows 10 & Windows 11 (64-bit / ARM64).
+- **Camera**: Any standard Windows-compatible integrated or USB webcam (DirectShow).
+- **Dependencies**: Python 3.10+, OpenCV, NumPy, Cryptography, Pillow, ONNX Runtime.
+- **Installation**: Run `service/install-windows.bat` or `install-windows.ps1`.
 
 ---
 
 ## Running Tests
 
-Run the end-to-end self-test suite:
+Run the full cross-platform self-test suite:
 ```bash
-python tests/test_suite.py
+python -m unittest discover tests
 ```
 
 Validates:
@@ -93,4 +100,5 @@ Validates:
 - Neural face detection and canonical 112×112 similarity alignment
 - ArcFace 512-D embedding generation and cosine similarity matching
 - Liveness detection and screen glare rejection
-- Kernel virtual keyboard (`/dev/uinput`) keycode mapping
+- Kernel virtual keyboard (`/dev/uinput`) & Win32 `SendInput` structure alignment
+- 60 FPS animation frame cache and Win32 hardware squircle regions

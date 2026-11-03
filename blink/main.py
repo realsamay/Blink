@@ -5,7 +5,6 @@ Blink CLI and Application Entrypoint for Linux.
 from __future__ import annotations
 
 import argparse
-import fcntl
 import os
 import sys
 import signal
@@ -16,48 +15,96 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-import gi
-gi.require_version("Gtk", "3.0")
-gi.require_version("Gdk", "3.0")
-from gi.repository import Gtk, GLib
+from blink.system.platform_info import IS_WINDOWS
 
-GLib.set_prgname("blink")
-GLib.set_application_name("Blink")
+if not IS_WINDOWS:
+    import gi
+    gi.require_version("Gtk", "3.0")
+    gi.require_version("Gdk", "3.0")
+    from gi.repository import Gtk, GLib
+
+    GLib.set_prgname("blink")
+    GLib.set_application_name("Blink")
+else:
+    Gtk = None
+    GLib = None
 
 from blink.core.config import BlinkSettings, CONFIG_DIR
 from blink.core.crypto import SecureCredentialManager, SecureFaceStore
 from blink.core.coordinator import FaceUnlockCoordinator
 from blink.ui.notch_overlay import NotchOverlayWindow
-from blink.ui.settings_window import SettingsWindow
 from blink.system.keystroke_injector import KeystrokeInjector
 
 
-def run_daemon():
+def acquire_single_instance_lock():
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    lock_file = open(CONFIG_DIR / "blink.lock", "w")
-    try:
-        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except (IOError, BlockingIOError):
-        print("[Blink] Another Blink daemon instance is already active. Exiting.")
-        sys.exit(0)
+    if IS_WINDOWS:
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            mutex = kernel32.CreateMutexW(None, True, "Global\\BlinkFaceUnlockDaemonMutex")
+            if kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+                print("[Blink] Another Blink daemon instance is already active. Exiting.")
+                sys.exit(0)
+            return mutex
+        except Exception:
+            return None
+    else:
+        import fcntl
+        lock_file = open(CONFIG_DIR / "blink.lock", "w")
+        try:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (IOError, BlockingIOError):
+            print("[Blink] Another Blink daemon instance is already active. Exiting.")
+            sys.exit(0)
+        return lock_file
 
-    print("[Blink] Starting Blink daemon for Linux...")
+
+def run_daemon():
+    lock = acquire_single_instance_lock()
+    os_name = "Windows" if IS_WINDOWS else "Linux"
+    print(f"[Blink] Starting Blink daemon for {os_name}...")
     overlay = NotchOverlayWindow()
     coordinator = FaceUnlockCoordinator(overlay=overlay)
     coordinator.start()
 
-    def handle_sigint(sig, frame):
-        print("\n[Blink] Shutting down daemon...")
-        coordinator.stop()
-        Gtk.main_quit()
+    if IS_WINDOWS:
+        import time
 
-    signal.signal(signal.SIGINT, handle_sigint)
-    signal.signal(signal.SIGTERM, handle_sigint)
+        def handle_sigint(sig, frame):
+            print("\n[Blink] Shutting down daemon...")
+            coordinator.stop()
+            sys.exit(0)
 
-    Gtk.main()
+        signal.signal(signal.SIGINT, handle_sigint)
+        try:
+            while True:
+                time.sleep(1.0)
+        except KeyboardInterrupt:
+            coordinator.stop()
+    else:
+        def handle_sigint(sig, frame):
+            print("\n[Blink] Shutting down daemon...")
+            coordinator.stop()
+            Gtk.main_quit()
+
+        signal.signal(signal.SIGINT, handle_sigint)
+        signal.signal(signal.SIGTERM, handle_sigint)
+        Gtk.main()
 
 
 def run_settings():
+    if IS_WINDOWS and Gtk is None:
+        try:
+            from blink.ui.settings_window_win import run_windows_settings
+            run_windows_settings()
+            return
+        except Exception as e:
+            print(f"[Blink] Notice: {e}. Opening terminal configuration wizard.")
+            run_terminal_settings()
+            return
+
+    from blink.ui.settings_window import SettingsWindow
     install_desktop_entry()
     win = SettingsWindow()
     win.connect("destroy", Gtk.main_quit)
@@ -65,18 +112,47 @@ def run_settings():
     Gtk.main()
 
 
-def run_status():
+def run_terminal_settings():
+    """Interactive terminal settings wizard for headless/Windows setups."""
     settings = BlinkSettings.load()
     print("=" * 50)
-    print("              BLINK FOR LINUX")
+    print("          BLINK CONFIGURATION WIZARD")
+    print("=" * 50)
+    print(f"1. Face Unlock Enabled: {settings.is_face_unlock_enabled}")
+    print(f"2. Match Threshold:     {settings.match_threshold}")
+    print(f"3. Detection Timeout:   {settings.face_detection_seconds}s")
+    print(f"4. Password Stored:     {'YES' if SecureCredentialManager.has_stored_password() else 'NO'}")
+    print("=" * 50)
+    pwd = input("Enter new desktop unlock password (or press Enter to keep): ").strip()
+    if pwd:
+        SecureCredentialManager.save_password(pwd)
+        print("[Blink] Password saved with AES-256-GCM encryption.")
+    enable = input("Enable Face Unlock? (y/n, Enter to skip): ").strip().lower()
+    if enable == 'y':
+        settings.is_face_unlock_enabled = True
+        settings.save()
+        print("[Blink] Face Unlock enabled.")
+    elif enable == 'n':
+        settings.is_face_unlock_enabled = False
+        settings.save()
+        print("[Blink] Face Unlock disabled.")
+
+
+def run_status():
+    settings = BlinkSettings.load()
+    os_name = "WINDOWS" if IS_WINDOWS else "LINUX"
+    print("=" * 50)
+    print(f"              BLINK FOR {os_name}")
     print("=" * 50)
     print(f"Face Unlock Enabled:    {settings.is_face_unlock_enabled}")
     print(f"Similarity Threshold:   {settings.match_threshold}")
     print(f"Detection Timeout:      {settings.face_detection_seconds}s")
     print(f"Liveness Strictness:    {settings.liveness_mode.upper()} (Enabled: {settings.liveness_checks_enabled})")
     print(f"Active Triggers:        {', '.join(settings.unlock_triggers)}")
-    print(f"Camera Device Index:    /dev/video{settings.camera_index}")
-    print(f"Keystroke Injection:    {'Available (/dev/uinput writable)' if KeystrokeInjector.is_available() else 'NOT Available'}")
+    cam_str = f"Device Index {settings.camera_index} (DirectShow)" if IS_WINDOWS else f"/dev/video{settings.camera_index}"
+    print(f"Camera Device Index:    {cam_str}")
+    inj_str = "Available (Win32 SendInput API)" if IS_WINDOWS else ("Available (/dev/uinput writable)" if KeystrokeInjector.is_available() else "NOT Available")
+    print(f"Keystroke Injection:    {inj_str}")
     print(f"Password Stored:        {'YES (AES-256-GCM)' if SecureCredentialManager.has_stored_password() else 'NO'}")
 
     identities = SecureFaceStore.load_identities()
@@ -89,6 +165,23 @@ def run_status():
 
 def install_desktop_entry():
     """Installs Blink into the system application menu and user desktop."""
+    if IS_WINDOWS:
+        try:
+            appdata = os.environ.get("APPDATA", "")
+            start_menu = Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+            start_menu.mkdir(parents=True, exist_ok=True)
+            desktop = Path.home() / "Desktop"
+
+            # Create Windows batch launcher
+            bat_content = f'@echo off\r\nstart "" pythonw "{ROOT_DIR}\\blink\\main.py" settings\r\n'
+            (start_menu / "Blink.bat").write_text(bat_content, encoding="utf-8")
+            if desktop.is_dir():
+                (desktop / "Blink.bat").write_text(bat_content, encoding="utf-8")
+            print(f"[Blink] Windows shortcuts installed at: {start_menu / 'Blink.bat'}")
+        except Exception as e:
+            print(f"[Blink] Notice: Failed to create Windows shortcut: {e}")
+        return
+
     app_dir = Path.home() / ".local" / "share" / "applications"
     app_dir.mkdir(parents=True, exist_ok=True)
     bin_path = Path.home() / "blink" / "bin" / "blink"
@@ -165,6 +258,19 @@ Exec={bin_path} test-scan
 
 def setup_autostart():
     install_desktop_entry()
+    if IS_WINDOWS:
+        try:
+            appdata = os.environ.get("APPDATA", "")
+            startup_dir = Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+            startup_dir.mkdir(parents=True, exist_ok=True)
+            bat_file = startup_dir / "BlinkDaemon.bat"
+            bat_content = f'@echo off\r\nstart "" pythonw "{ROOT_DIR}\\blink\\main.py" daemon\r\n'
+            bat_file.write_text(bat_content, encoding="utf-8")
+            print(f"[Blink] Windows startup launcher created at: {bat_file}")
+        except Exception as e:
+            print(f"[Blink] Notice: Failed to configure Windows startup: {e}")
+        return
+
     autostart_dir = Path.home() / ".config" / "autostart"
     autostart_dir.mkdir(parents=True, exist_ok=True)
 
@@ -193,9 +299,14 @@ def run_test_scan():
     overlay._is_desktop_preview = True
     coordinator = FaceUnlockCoordinator(overlay=overlay)
     coordinator.test_scan()
-    # Quit GTK main loop 6 seconds after scan test concludes
-    GLib.timeout_add_seconds(6, Gtk.main_quit)
-    Gtk.main()
+    if IS_WINDOWS:
+        import time
+        time.sleep(6.0)
+        overlay.clean_close()
+    else:
+        # Quit GTK main loop 6 seconds after scan test concludes
+        GLib.timeout_add_seconds(6, Gtk.main_quit)
+        Gtk.main()
 
 
 def main():

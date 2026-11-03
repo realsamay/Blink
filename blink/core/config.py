@@ -7,14 +7,15 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import List
 
 
-CONFIG_DIR = Path.home() / ".config" / "blink"
+from blink.system.platform_info import get_config_dir
+
+CONFIG_DIR = get_config_dir()
 SETTINGS_FILE = CONFIG_DIR / "settings.json"
 
 

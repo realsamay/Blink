@@ -6,11 +6,14 @@ Captures frames asynchronously in a dedicated worker thread, preventing I/O bloc
 from __future__ import annotations
 
 import glob
+import sys
 import threading
 import time
 from typing import List, Optional, Tuple
 import cv2
 import numpy as np
+
+from blink.system.platform_info import IS_WINDOWS
 
 
 class CameraManager:
@@ -27,8 +30,21 @@ class CameraManager:
 
     @staticmethod
     def list_devices() -> List[int]:
-        """Enumerates available /dev/video* devices."""
+        """Enumerates available video capture devices on Linux and Windows."""
         devices = []
+        if IS_WINDOWS:
+            # Probe indices 0..3 using DirectShow for fast check
+            for idx in range(4):
+                try:
+                    cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
+                    if cap.isOpened():
+                        devices.append(idx)
+                        cap.release()
+                except Exception:
+                    continue
+            return devices if devices else [0]
+
+        # Linux: probe /dev/video*
         for dev in sorted(glob.glob("/dev/video*")):
             try:
                 idx = int(dev.replace("/dev/video", ""))
@@ -49,9 +65,11 @@ class CameraManager:
             return True
 
         self.error_message = None
-        self._cap = cv2.VideoCapture(self.device_index)
+        backend = cv2.CAP_DSHOW if IS_WINDOWS else cv2.CAP_ANY
+        self._cap = cv2.VideoCapture(self.device_index, backend)
         if not self._cap.isOpened():
-            self.error_message = f"Could not open camera /dev/video{self.device_index}."
+            dev_str = f"index {self.device_index}" if IS_WINDOWS else f"/dev/video{self.device_index}"
+            self.error_message = f"Could not open camera {dev_str}."
             print(f"[CameraManager] {self.error_message}")
             return False
 
