@@ -91,7 +91,13 @@ echo "[*] Installing icons..."
 ICON_SRC="${PROJECT_ROOT}/blink/resources/final.png"
 PY_BIN="${PROJECT_ROOT}/.venv/bin/python"
 if [ ! -f "${PY_BIN}" ]; then
-    PY_BIN="python3"
+    if /usr/bin/python3 -c "import cv2" 2>/dev/null; then
+        PY_BIN="/usr/bin/python3"
+    elif python3 -c "import cv2" 2>/dev/null; then
+        PY_BIN="python3"
+    else
+        PY_BIN="python3"
+    fi
 fi
 
 if [ -f "${ICON_SRC}" ]; then

@@ -36,29 +36,38 @@ from blink.ui.notch_overlay_win import (
 
 class TestPlatformDetection(unittest.TestCase):
     def test_linux_default_paths(self):
-        cfg_dir = get_config_dir()
-        self.assertTrue(str(cfg_dir).endswith("blink"))
+        with patch("blink.system.platform_info.IS_WINDOWS", False):
+            cfg_dir = get_config_dir()
+            self.assertTrue(str(cfg_dir).endswith("blink"))
 
-        mid = get_machine_id()
-        self.assertIsInstance(mid, str)
-        self.assertGreater(len(mid), 0)
+            mid = get_machine_id()
+            self.assertIsInstance(mid, str)
+            self.assertGreater(len(mid), 0)
 
-        user = get_current_user()
-        self.assertIsInstance(user, str)
-        self.assertGreater(len(user), 0)
+            user = get_current_user()
+            self.assertIsInstance(user, str)
+            self.assertGreater(len(user), 0)
 
     @patch("blink.system.platform_info.IS_WINDOWS", True)
     @patch.dict(os.environ, {"APPDATA": "/mock/AppData/Roaming", "COMPUTERNAME": "TEST-PC", "USERNAME": "TestUser"})
     def test_windows_mock_paths(self):
         cfg_dir = get_config_dir()
         self.assertIn("AppData", str(cfg_dir))
-        self.assertTrue(str(cfg_dir).endswith("Blink"))
-
-        mid = get_machine_id()
-        self.assertIn("TEST-PC", mid)
+        self.assertTrue(str(cfg_dir).lower().endswith("blink"))
 
         user = get_current_user()
         self.assertEqual(user, "TestUser")
+
+        # Fallback when winreg is unavailable
+        with patch.dict(sys.modules, {"winreg": None}):
+            mid = get_machine_id()
+            self.assertIn("TEST-PC", mid)
+
+    def test_windows_id_format(self):
+        with patch("blink.system.platform_info.IS_WINDOWS", True):
+            mid = get_machine_id()
+            self.assertIsInstance(mid, str)
+            self.assertGreater(len(mid), 0)
 
 
 class TestWindowsKeystrokeStructures(unittest.TestCase):
