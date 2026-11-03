@@ -8,52 +8,124 @@
   <i>Fast, secure, on-device facial authentication for Linux Mint, Ubuntu, Debian, Fedora, Arch, and Windows 10/11</i>
 </p>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white" alt="Python 3.10+" />
+  <img src="https://img.shields.io/badge/Platforms-Linux%20%7C%20Windows-0078D6?style=flat" alt="Platforms" />
+  <img src="https://img.shields.io/badge/Privacy-100%25%20On--Device-30D158?style=flat" alt="100% On-Device" />
+  <img src="https://img.shields.io/badge/Latency-%3C%2025ms-FF9F0A?style=flat" alt="Latency" />
+  <img src="https://img.shields.io/badge/Tests-18%20Passing-30D158?style=flat" alt="Tests" />
+  <img src="https://img.shields.io/badge/License-AGPLv3-0568FD?style=flat" alt="License" />
+</p>
+
 ---
 
 ## Overview
 
-**Blink** brings seamless, biometric Face ID to Linux and Windows desktops. It unlocks your system in the blink of an eye when you wake your PC, open your laptop lid, or touch your keyboard/mouse at the lockscreen — completely hands-free and private.
+**Blink** brings Apple-style biometric Face ID to Linux and Windows desktops. It unlocks your system in milliseconds when you wake your PC, open your laptop lid, or touch your keyboard/mouse at the lockscreen — completely hands-free, offline, and private.
 
-### Features
-
-- ⚡ **100% On-Device & Private**: Neural facial embeddings (ArcFace 512-D) and detection run completely offline on your CPU with AVX2/FMA hardware acceleration.
-- 🎬 **Minimalist Rounded Popout Card (v2.0)**: A sleek, black squarish card with smooth rounded corners that pops out directly under the camera notch on your lockscreen. Displays pure 60 FPS face animations with zero clutter or text.
-- ⚡ **Instantaneous Keystroke Unlock**: Warmed-up persistent kernel `/dev/uinput` device and streamlined zero-wait pipeline types your unlock credentials instantaneously (< 25ms) the microsecond your face is verified.
-- ⚡ **Instant Idle-Wake Detection**: Tracks lockscreen interaction via ultra-fast hardware idle monitoring (`XScreenSaverQueryInfo`) and D-Bus signals so returning to an auto-locked PC immediately triggers Face ID scanning.
-- 🛡️ **Military-Grade AES-256-GCM Encryption**: User passwords and facial embedding vectors are encrypted at rest with PBKDF2 (100,000 rounds) key derivation, with automatic memory zeroing after injection.
-- 👁️ **Multi-Cue Anti-Spoofing Liveness**: Comprehensive anti-spoofing engine detecting screen glare, bezel framing, planar homography, and blink dynamics to prevent photo or video attacks.
-- 🧪 **Face Lab & Enrollment Wizard**: Guided 5-pose face capture wizard with live feedback, visual distance gauges, and real-time similarity metrics.
+No external cloud servers. No telemetry. Your facial biometric vectors and unlock credentials never leave your local hardware.
 
 ---
 
-## Quick Start
+## Highlights & Features
 
-### 1. Check System Status
-Verify camera availability, `/dev/uinput` permissions, and encryption status:
-```bash
-blink status
+- ⚡ **100% On-Device & Private**: Neural facial embeddings (ArcFace 512-D) and YuNet deep CNN detection run completely offline on CPU with AVX2/FMA hardware acceleration.
+- 🎬 **Minimalist Rounded Popout Card (v2.0)**: A sleek, 100×100 px obsidian black squircle with hardware-carved 22px rounded corners that pops out directly under your webcam notch. Displays pure 60 FPS face scan and unlock blossom animations with zero text clutter.
+- ⚡ **Instantaneous Keystroke Unlock**:
+  - **Linux**: Pre-warmed persistent kernel `/dev/uinput` virtual keyboard typing credentials in **< 25ms**.
+  - **Windows**: Win32 `SendInput` batch injection using `KEYEVENTF_UNICODE` in **< 5ms** (100% layout-independent across QWERTY, AZERTY, QWERTZ).
+- 👁️ **Multi-Cue Anti-Spoofing Liveness**: Comprehensive heuristics detecting screen glare reflections, device framing bezels, 3D planar homography, depth parallax, and blink dynamics to reject phone photos, tablets, and video spoof attacks.
+- 🛡️ **AES-256-GCM Hardware-Bound Vault**: Encrypted credentials and facial embeddings at rest using PBKDF2 (100,000 rounds) key derivation bound to the hardware Machine ID (`/etc/machine-id` on Linux, `MachineGuid` on Windows), with automatic RAM zeroing after injection.
+- 🪟 **Focus-Safe Windows Architecture**: Created with `WS_EX_NOACTIVATE | WS_EX_TOPMOST` to guarantee the dynamic overlay card never steals keyboard focus from the Windows 10/11 lockscreen password field.
+- 🧪 **Face Lab & Enrollment Wizard**: Guided 5-pose face enrollment wizard (Center, Left, Right, Up, Down) with live feedback, visual distance gauges, and real-time similarity metrics.
+
+---
+
+## The 8-Step Architecture Pipeline
+
+```text
+[ Lock Event / User Activity ]
+               │
+               ▼
+[ 1. Event Catching ] ──► Linux: D-Bus (ScreenSaver/login1) + libXss.so.1 idle tracking
+                      ──► Windows: wtsapi32 (WTSRegisterSessionNotification) + GetLastInputInfo
+               │
+               ▼
+[ 2. Camera Worker ] ───► Dedicated async capture thread (V4L2 on Linux, DirectShow on Windows)
+               │
+               ▼
+[ 3. YuNet CNN Face Detect ] ──► Locates face bounding box and 5 facial landmarks in ~5ms
+               │
+               ▼
+[ 4. Canonical Alignment ] ───► Affine similarity warp onto 112×112 standard template
+               │
+               ▼
+[ 5. ArcFace 512-D Embedding ] ─► MobileFaceNet generates unit-norm vector; cosine similarity (≥ 0.60)
+               │
+               ▼
+[ 6. Anti-Spoofing Guard ] ───► 5-cue liveness filters (glare, bezels, homography, blink dynamics)
+               │
+               ▼
+[ 7. Hardware Squircle Card ] ─► 100×100 px card pops down at 60 FPS (Cairo XShape on Linux, Win32 on Windows)
+               │
+               ▼
+[ 8. Instant Credential Unlock ] ─► /dev/uinput (Linux) or SendInput (Windows) types password in <25ms
 ```
 
-### 2. Launch Settings & Enroll Your Profile
-Open the graphical settings and enrollment interface:
+---
+
+## Installation & Setup
+
+### 🐧 Linux (Linux Mint, Ubuntu, Debian, Fedora, Arch)
+
+#### 1. Clone & Install Dependencies
+```bash
+git clone https://github.com/realsamay/Blink.git ~/.local/share/blink
+cd ~/.local/share/blink
+./install.sh
+```
+
+#### 2. Configure Password & Enroll Face
 ```bash
 blink settings
 ```
+1. Open the **Password** tab and enter your Linux desktop password (saved encrypted with AES-256-GCM).
+2. Open the **Your Face** tab, click **Enroll New Face**, and follow the 5-pose scan guide.
+3. Check the **Face Lab** tab for live confidence scores and real-time landmark tracking.
 
-1. **Password Tab**: Enter and securely store your desktop unlock password.
-2. **Your Face Tab**: Click **Enroll New Face** and follow the guided 5-pose face capture (Center, Left, Right, Up, Down).
-3. **Face Lab Tab**: Test real-time camera inference, landmark tracking, and match confidence.
-
-### 3. Enable Background Service
-Start the background unlock daemon:
+#### 3. Enable Background Service
 ```bash
+# Enable systemd user service (recommended)
 systemctl --user enable --now blink.service
-```
 
-Or configure it via user autostart:
-```bash
+# Or configure desktop autostart
 blink autostart
 ```
+
+---
+
+### 🪟 Windows (Windows 10 & Windows 11)
+
+#### 1. One-Click Setup
+Open PowerShell or Command Prompt as Administrator:
+```powershell
+git clone https://github.com/realsamay/Blink.git C:\Users\$env:USERNAME\Blink
+cd C:\Users\$env:USERNAME\Blink
+.\service\install-windows.bat
+```
+*(Or right-click `service\install-windows.bat` in File Explorer and click **Run as administrator**).*
+
+The installer automatically:
+- Sets up a dedicated Python virtual environment (`.venv`).
+- Installs all dependencies (`opencv-python`, `numpy`, `cryptography`, `pillow`, `onnxruntime`).
+- Creates desktop and Start Menu shortcuts.
+- Configures background unlock daemon autostart on user logon in `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`.
+
+#### 2. Configure Password & Enroll Face
+Launch **Blink** from your Start Menu or Desktop:
+1. Enter your Windows login password or PIN in the **Password** tab.
+2. Click **➕ Enroll New Face** and look directly at your webcam to capture your profile.
+3. Enable **Face ID Unlock** in the **General** tab and click **Save Settings**.
 
 ---
 
@@ -63,42 +135,68 @@ blink autostart
 blink [command]
 
 Commands:
-  status        Display hardware, camera, encryption, and enrolled face status
-  settings      Open GUI Settings, Face Enrollment Wizard, and Face Lab
-  daemon        Run the background unlock daemon
-  autostart     Configure Blink to start on login (~/.config/autostart/blink.desktop)
-  test-scan     Preview the Face ID card and scan animation on desktop
+  status            Display hardware, camera, encryption, and enrolled face status
+  settings          Open GUI Settings, Face Enrollment Wizard, and Face Lab
+  daemon            Run the background unlock daemon
+  autostart         Configure Blink to launch automatically on user login
+  install-desktop   Install Blink into system application menu and desktop
+  test-scan         Preview the Face ID squircle card scan & blossom animation on desktop
+```
+
+### Checking System Diagnostics
+```bash
+blink status
+```
+```text
+==================================================
+              BLINK FOR LINUX / WINDOWS
+==================================================
+Face Unlock Enabled:    True
+Similarity Threshold:   0.60
+Detection Timeout:      5s
+Liveness Strictness:    LIGHT (Enabled: True)
+Active Triggers:        on_wake, on_lock, on_space, on_activity
+Camera Device Index:    /dev/video1 (or DirectShow Index 0)
+Keystroke Injection:    Available (/dev/uinput or SendInput API)
+Password Stored:        YES (AES-256-GCM)
+Enrolled Identities:    1 (5 poses, Active)
+==================================================
 ```
 
 ---
 
 ## System Requirements
 
-### Linux
-- **Linux Distribution**: Linux Mint, Ubuntu, Debian, Fedora, Arch Linux, or any modern 64-bit distro.
-- **Desktop Environments**: Cinnamon, GNOME, KDE Plasma, XFCE, MATE, and compatible lockscreens.
-- **Camera**: Any standard USB or built-in webcam (`/dev/video0`).
-- **Dependencies**: Python 3.10+, OpenCV, NumPy, PyGObject (GTK 3), evdev.
-
-### Windows
-- **Operating System**: Windows 10 & Windows 11 (64-bit / ARM64).
-- **Camera**: Any standard Windows-compatible integrated or USB webcam (DirectShow).
-- **Dependencies**: Python 3.10+, OpenCV, NumPy, Cryptography, Pillow, ONNX Runtime.
-- **Installation**: Run `service/install-windows.bat` or `install-windows.ps1`.
+| Specification | Linux (Available Now) | Windows (Available Now) |
+| :--- | :--- | :--- |
+| **Operating System** | Linux Mint, Ubuntu, Debian, Fedora, Arch | Windows 10 & 11 (64-bit / ARM64) |
+| **Desktop Environment** | Cinnamon, GNOME, KDE Plasma, XFCE, MATE | Native Windows Shell (Winlogon / LogonUI) |
+| **Processor** | Dual-core 2.0 GHz+ (Intel / AMD CPU with AVX2) | Dual-core 2.0 GHz+ (Intel / AMD CPU) |
+| **Webcam** | Built-in or USB webcam (`/dev/video0`) | Built-in or USB DirectShow webcam |
+| **Memory Usage** | ~140 – 180 MB active RAM | ~150 MB active RAM |
+| **Unlock Latency** | **< 25 ms** via `/dev/uinput` | **< 5 ms** via Win32 `SendInput` batch |
+| **Privacy** | 100% On-Device · Zero Cloud Latency | 100% On-Device · Zero Cloud Latency |
 
 ---
 
-## Running Tests
+## Running the Automated Test Suite
 
-Run the full cross-platform self-test suite:
+Blink includes an end-to-end unit and integration test suite:
+
 ```bash
 python -m unittest discover tests
 ```
 
 Validates:
-- AES-256-GCM encryption, decryption, and secure zeroing
-- Neural face detection and canonical 112×112 similarity alignment
-- ArcFace 512-D embedding generation and cosine similarity matching
-- Liveness detection and screen glare rejection
-- Kernel virtual keyboard (`/dev/uinput`) & Win32 `SendInput` structure alignment
-- 60 FPS animation frame cache and Win32 hardware squircle regions
+- **Crypto**: AES-256-GCM encryption, decryption, PBKDF2 salt derivation, and secure memory buffer zeroing.
+- **Vision**: YuNet CNN detector initialization, 5-point landmark similarity warping, and 112×112 canonical output.
+- **ArcFace**: 512-dimensional normalized unit vector generation and cosine similarity matching ($\ge 0.60$).
+- **Liveness**: Multi-cue screen glare detection, bezel framing rejection, homography, and blink dynamics.
+- **Input ABI**: Linux `/dev/uinput` mapping and Windows Win32 `INPUT` / `KEYBDINPUT` 64-bit C ABI alignment.
+- **Animations**: 60 FPS surface cache validation across idle, unlock blossom, and failure animations.
+
+---
+
+## License
+
+This project is licensed under the **GNU Affero General Public License v3.0 (AGPLv3)**.
