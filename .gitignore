@@ -24,6 +24,10 @@ models/1k3d68.onnx
 *.tar.gz
 
 # System / editor files
+build/
+dist/
+*.deb
+*.exe
 .DS_Store
 Thumbs.db
 .idea/
