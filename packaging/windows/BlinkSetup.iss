@@ -2,7 +2,7 @@
 ; Compiles into a standalone one-click Blink-Setup-x64.exe installer
 
 #define MyAppName "Blink"
-#define MyAppVersion "2.0.0"
+#define MyAppVersion "2.1.0"
 #define MyAppPublisher "Samay"
 #define MyAppURL "https://github.com/realsamay/Blink"
 #define MyAppExeName "blink.exe"

@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build/deb"
 DIST_DIR="${PROJECT_ROOT}/dist"
-VERSION="2.0.0"
+VERSION="2.1.0"
 PKG_NAME="blink_${VERSION}_amd64"
 STAGE_DIR="${BUILD_DIR}/${PKG_NAME}"
 
