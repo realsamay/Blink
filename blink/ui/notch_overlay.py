@@ -295,8 +295,8 @@ class LinuxNotchOverlayWindow(Gtk.Window):
             pass
         return None
 
-    def attach_to_screensaver(self, ss_xid: int) -> None:
-        """Reparents overlay into the screensaver window and guarantees rounded corner shape."""
+    def attach_to_screensaver(self, ss_xid: int, show: bool = False) -> None:
+        """Reparents overlay into the screensaver window."""
         if not x11 or not _X11_DISP or getattr(self, "_is_dead", False):
             return
         if getattr(self, "_current_parent_xid", None) == ss_xid:
@@ -312,18 +312,18 @@ class LinuxNotchOverlayWindow(Gtk.Window):
             monitor = display.get_primary_monitor() or display.get_monitor(0)
             geom = monitor.get_geometry()
             x = geom.x + (geom.width - int(self.card_size)) // 2
-            y = int(self.target_y)
+            y = int(self.current_y)
             try:
-                print(f"[NotchOverlay] Attaching rounded card {hex(xid)} (190x190) into screensaver {hex(ss_xid)} at ({x}, {y})")
+                print(f"[NotchOverlay] Reparenting card {hex(xid)} (190x190) into screensaver {hex(ss_xid)}")
                 x11.XReparentWindow(_X11_DISP, xid, ss_xid, int(x), int(y))
-                x11.XMapWindow(_X11_DISP, xid)
-                x11.XRaiseWindow(_X11_DISP, xid)
-                x11.XFlush(_X11_DISP)
                 self._current_parent_xid = ss_xid
-                self.current_y = self.target_y
-                self.show_all()
-                self.apply_shape_mask()
-                self.reposition()
+                if show:
+                    x11.XMapWindow(_X11_DISP, xid)
+                    x11.XRaiseWindow(_X11_DISP, xid)
+                    x11.XFlush(_X11_DISP)
+                    self.show_all()
+                    self.apply_shape_mask()
+                    self.reposition()
             except Exception as e:
                 print(f"[NotchOverlay] Error reparenting to screensaver: {e}")
 
@@ -349,25 +349,30 @@ class LinuxNotchOverlayWindow(Gtk.Window):
         super().show_all()
 
     def arm(self) -> None:
+        """Arms state without popping out onto screen before camera is ready."""
+        self.phase = OverlayPhase.SCANNING
+        self.idle_frame_idx = 0
+
+    def begin_scanning(self) -> None:
+        """Smoothly reveals overlay and springs out from behind camera bezel."""
         if not self._is_allowed_to_show():
             self.hide()
             return
+        # If already actively scanning and visible, don't jerk the spring position back
+        if self.phase == OverlayPhase.SCANNING and self.is_visible() and getattr(self, "_anim_running", False):
+            return
+
         self.phase = OverlayPhase.SCANNING
         self.idle_frame_idx = 0
         self.current_y = self.target_y - 45.0
         self.show_all()
-        self.apply_shape_mask()
-        self.reposition()
-        self.queue_draw()
-        self._start_anim_loop()
-
-    def begin_scanning(self) -> None:
-        if not self._is_allowed_to_show():
-            self.hide()
-            return
-        self.phase = OverlayPhase.SCANNING
-        self.current_y = self.target_y - 45.0
-        self.show_all()
+        if x11 and _X11_DISP:
+            gdk_win = self.get_window()
+            if gdk_win and not gdk_win.is_destroyed():
+                xid = gdk_win.get_xid()
+                x11.XMapWindow(_X11_DISP, xid)
+                x11.XRaiseWindow(_X11_DISP, xid)
+                x11.XFlush(_X11_DISP)
         self.apply_shape_mask()
         self.reposition()
         self.queue_draw()

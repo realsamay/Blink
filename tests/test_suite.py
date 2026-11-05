@@ -171,5 +171,52 @@ class TestBiometricMatching(unittest.TestCase):
         self.assertIsNone(matched, "Random impostor must be rejected")
 
 
+class TestCameraSynchronization(unittest.TestCase):
+    def test_camera_manager_is_running_and_wait_ready(self):
+        from blink.vision.camera import CameraManager
+        cam = CameraManager(device_index=9999)  # Non-existent index
+        self.assertFalse(cam.is_running)
+
+        # wait_until_ready should timeout and return False when camera is not running/no frames
+        t0 = os.times().elapsed
+        ready = cam.wait_until_ready(timeout=0.1)
+        self.assertFalse(ready)
+
+        # Simulated running camera with valid frame
+        cam._running = True
+        with cam._lock:
+            cam._current_frame = np.zeros((100, 100, 3), dtype=np.uint8)
+            cam._frame_id = 1
+
+        self.assertTrue(cam.is_running)
+        self.assertTrue(cam.wait_until_ready(timeout=0.2))
+        cam.stop()
+        self.assertFalse(cam.is_running)
+
+
+class TestCoordinatorSettingsSync(unittest.TestCase):
+    def setUp(self):
+        self._orig_settings = BlinkSettings.load()
+
+    def tearDown(self):
+        self._orig_settings.save()
+
+    def test_coordinator_skips_when_disabled(self):
+        from blink.core.coordinator import FaceUnlockCoordinator
+        # Disable face unlock
+        settings = BlinkSettings.load()
+        settings.is_face_unlock_enabled = False
+        settings.save()
+
+        coord = FaceUnlockCoordinator()
+        # Ensure that handle_locked and handle_wake don't start scan or keep overlay open
+        coord._handle_locked()
+        self.assertFalse(coord.camera.is_running)
+        coord._handle_wake()
+        self.assertFalse(coord.camera.is_running)
+        coord._handle_lockscreen_activity()
+        self.assertFalse(coord.camera.is_running)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -463,21 +463,20 @@ class WindowsNotchOverlayWindow:
         self._anim_running = False
 
     def arm(self) -> None:
+        """Arms state without popping out onto screen before camera is ready."""
+        self.phase = OverlayPhase.SCANNING
+        self.idle_frame_idx = 0
+
+    def begin_scanning(self) -> None:
+        """Smoothly reveals overlay and springs out from behind camera notch."""
         if not self._is_allowed_to_show():
             self.hide()
+            return
+        if self.phase == OverlayPhase.SCANNING and self._hwnd and ctypes.windll.user32.IsWindowVisible(self._hwnd):
             return
         self.phase = OverlayPhase.SCANNING
         self.idle_frame_idx = 0
-        self.current_y = self.target_y - 25.0
-        self.show()
-        self._reposition()
-        self._start_anim_loop()
-
-    def begin_scanning(self) -> None:
-        if not self._is_allowed_to_show():
-            self.hide()
-            return
-        self.phase = OverlayPhase.SCANNING
+        self.current_y = self.target_y - 35.0
         self.show()
         self._reposition()
         self._start_anim_loop()

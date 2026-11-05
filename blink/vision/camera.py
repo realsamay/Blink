@@ -28,6 +28,20 @@ class CameraManager:
         self._frame_id: int = 0
         self.error_message: Optional[str] = None
 
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
+    def wait_until_ready(self, timeout: float = 2.0) -> bool:
+        """Blocks until the camera is running and captures its first valid frame."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            with self._lock:
+                if self._running and self._current_frame is not None and self._frame_id > 0:
+                    return True
+            time.sleep(0.02)
+        return False
+
     @staticmethod
     def list_devices() -> List[int]:
         """Enumerates available video capture devices on Linux and Windows."""
@@ -79,6 +93,9 @@ class CameraManager:
         self._cap.set(cv2.CAP_PROP_FPS, 30)
 
         self._running = True
+        with self._lock:
+            self._current_frame = None
+            self._frame_id = 0
         self._thread = threading.Thread(target=self._capture_loop, daemon=True, name="BlinkCameraWorker")
         self._thread.start()
         return True

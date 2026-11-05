@@ -80,40 +80,34 @@ class FaceUnlockCoordinator:
             self.overlay = NotchOverlayWindow(on_retry_clicked=self.start_scan_cycle)
         return self.overlay
 
+    def stop_all_active(self) -> None:
+        self.cancel_scan()
+        if self.overlay and not getattr(self.overlay, "_is_dead", False):
+            overlay_to_close = self.overlay
+            self.overlay = None
+            GLib.idle_add(overlay_to_close.clean_close)
+
     def start(self) -> None:
         self.lock_monitor.start()
         print("[Coordinator] FaceUnlockCoordinator started and monitoring lock state.")
 
     def stop(self) -> None:
         self.lock_monitor.stop()
-        self.cancel_scan()
-        if self.overlay:
-            overlay_to_close = self.overlay
-            self.overlay = None
-            GLib.idle_add(overlay_to_close.clean_close)
+        self.stop_all_active()
 
     def _handle_locked(self) -> None:
+        self.settings = BlinkSettings.load()
+        if not self.settings.is_face_unlock_enabled:
+            print("[Coordinator] Screen locked, but Face Unlock is disabled in settings. Skipping.")
+            self.stop_all_active()
+            return
+
         print("[Coordinator] Detected screen locked.")
         KeystrokeInjector.warmup()
         self.has_armed_for_current_lock = False
         self.has_auto_retried_for_current_lock = False
         self.cancel_scan()
-        self.ensure_overlay()
         self._wake_screensaver_dialog()
-
-        # Brief settle loop allowing screensaver window to map
-        if not IS_WINDOWS:
-            ss_xid = None
-            for _ in range(12):
-                time.sleep(0.1)
-                finder = getattr(NotchOverlayWindow, "find_screensaver_window_xid", None)
-                ss_xid = finder() if finder else None
-                if ss_xid:
-                    break
-
-            # Attach overlay to screensaver window so it is guaranteed to draw in front
-            if ss_xid and self.overlay:
-                GLib.idle_add(self.overlay.attach_to_screensaver, ss_xid)
 
         if "on_lock" in self.settings.unlock_triggers:
             self.arm_and_scan(auto_scan=True)
@@ -131,23 +125,18 @@ class FaceUnlockCoordinator:
             GLib.idle_add(overlay_to_dismiss.dismiss_and_close)
 
     def _handle_wake(self) -> None:
+        self.settings = BlinkSettings.load()
+        if not self.settings.is_face_unlock_enabled:
+            self.stop_all_active()
+            return
+
         print("[Coordinator] Detected display wake.")
+        if self.camera.is_running:
+            print("[Coordinator] Camera already running on wake; continuing scan.")
+            return
+
         self.has_armed_for_current_lock = False
-        self.cancel_scan()
-        self.ensure_overlay()
         self._wake_screensaver_dialog()
-
-        if not IS_WINDOWS:
-            ss_xid = None
-            for _ in range(12):
-                time.sleep(0.1)
-                finder = getattr(NotchOverlayWindow, "find_screensaver_window_xid", None)
-                ss_xid = finder() if finder else None
-                if ss_xid:
-                    break
-
-            if ss_xid and self.overlay:
-                GLib.idle_add(self.overlay.attach_to_screensaver, ss_xid)
 
         if "on_wake" in self.settings.unlock_triggers:
             self.arm_and_scan(auto_scan=True)
@@ -186,37 +175,25 @@ class FaceUnlockCoordinator:
 
     def _handle_lockscreen_activity(self) -> None:
         """Called when user activity (mouse/keyboard) is detected on an already locked screen."""
+        self.settings = BlinkSettings.load()
+        if not self.settings.is_face_unlock_enabled:
+            return
         if not LockMonitor.is_screen_actually_locked():
             return
         if self.camera.is_running:
             return
         print("[Coordinator] Detected user activity on locked screen. Triggering scan...")
-        self.ensure_overlay()
         self._wake_screensaver_dialog()
-
-        if not IS_WINDOWS:
-            ss_xid = None
-            for _ in range(6):
-                finder = getattr(NotchOverlayWindow, "find_screensaver_window_xid", None)
-                ss_xid = finder() if finder else None
-                if ss_xid:
-                    break
-                time.sleep(0.05)
-
-            if ss_xid and self.overlay:
-                GLib.idle_add(self.overlay.attach_to_screensaver, ss_xid)
-
         self.arm_and_scan(auto_scan=True)
 
     def arm_and_scan(self, auto_scan: bool = True) -> None:
+        self.settings = BlinkSettings.load()
         if not self.settings.is_face_unlock_enabled:
             return
 
         if not SecureCredentialManager.has_stored_password():
             self.status_message = "No stored password."
             print("[Coordinator] Screen locked, but no password is stored.")
-            if self.overlay:
-                GLib.idle_add(self.overlay.show_notice, "Face ID", "⚠️ Set Password in Blink Settings", 2500)
             return
 
         identities = SecureFaceStore.load_identities()
@@ -224,16 +201,10 @@ class FaceUnlockCoordinator:
         if not active_identities:
             self.status_message = "No enrolled face identities."
             print("[Coordinator] Screen locked, but no faces are enrolled.")
-            if self.overlay:
-                GLib.idle_add(self.overlay.show_notice, "Face ID", "⚠️ No Face Enrolled — Open Blink", 2500)
             return
 
         self.has_armed_for_current_lock = True
-        if self.settings.show_unlock_animation and self.overlay:
-            GLib.idle_add(self.overlay.arm)
-
         if auto_scan:
-            time.sleep(0.15)
             self.start_scan_cycle()
 
     def cancel_scan(self) -> None:
@@ -242,6 +213,10 @@ class FaceUnlockCoordinator:
         self.camera.stop()
 
     def start_scan_cycle(self, force: bool = False) -> None:
+        self.settings = BlinkSettings.load()
+        if not force and not self.settings.is_face_unlock_enabled:
+            return
+
         with self._lock:
             self.scan_generation += 1
             gen = self.scan_generation
@@ -262,23 +237,63 @@ class FaceUnlockCoordinator:
         if not force and not LockMonitor.is_screen_actually_locked():
             return
 
-        print(f"[Coordinator] Starting scan cycle (generation {generation}, force={force})...")
-        if self.settings.show_unlock_animation and self.overlay:
-            GLib.idle_add(self.overlay.begin_scanning)
+        self.settings = BlinkSettings.load()
+        if not force and not self.settings.is_face_unlock_enabled:
+            return
 
+        print(f"[Coordinator] Starting scan cycle (generation {generation}, force={force}, camera={self.settings.camera_index})...")
+
+        # 1. Start the camera FIRST
         started = self.camera.start(device_index=self.settings.camera_index)
         if not started:
-            for attempt in range(3):
-                time.sleep(0.25)
+            for attempt in range(2):
+                time.sleep(0.2)
                 if self.camera.start(device_index=self.settings.camera_index):
                     started = True
                     break
 
         if not started:
             self.status_message = "Camera unavailable."
-            if self.overlay:
-                GLib.idle_add(self.overlay.finish_failure, "Camera unavailable", "Face ID")
+            print("[Coordinator] Camera unavailable.")
+            if self.settings.show_unlock_animation:
+                self.ensure_overlay()
+                if force and self.overlay:
+                    self.overlay._is_desktop_preview = True
+                if self.overlay:
+                    GLib.idle_add(self.overlay.finish_failure, "Camera unavailable", "Face ID")
             return
+
+        # 2. WAIT UNTIL CAMERA IS READY AND ACTUALLY CAPTURING FRAMES!
+        camera_ready = self.camera.wait_until_ready(timeout=2.0)
+        if not camera_ready:
+            print("[Coordinator] Camera timed out waiting for initial frame.")
+            self.camera.stop()
+            if self.settings.show_unlock_animation:
+                self.ensure_overlay()
+                if force and self.overlay:
+                    self.overlay._is_desktop_preview = True
+                if self.overlay:
+                    GLib.idle_add(self.overlay.finish_failure, "Camera timeout", "Face ID")
+            return
+
+        # 3. Check generation: Did another scan or unlock interrupt us while waiting for camera?
+        with self._lock:
+            if generation != self.scan_generation:
+                self.camera.stop()
+                return
+
+        # 4. NOW AND ONLY NOW: The camera is 100% active and seeing frames!
+        # Pop out the overlay card with fluid spring animation!
+        if self.settings.show_unlock_animation:
+            self.ensure_overlay()
+            if force and self.overlay:
+                self.overlay._is_desktop_preview = True
+            elif not IS_WINDOWS and self.overlay:
+                ss_xid = NotchOverlayWindow.find_screensaver_window_xid()
+                if ss_xid:
+                    GLib.idle_add(self.overlay.attach_to_screensaver, ss_xid, False)
+            if self.overlay:
+                GLib.idle_add(self.overlay.begin_scanning)
 
         liveness = LivenessAnalyzer(
             mode=self.settings.liveness_mode,
@@ -439,7 +454,7 @@ class FaceUnlockCoordinator:
         # Resolve outcome in UI
         if self.settings.show_unlock_animation and self.overlay and not getattr(self.overlay, "_is_dead", False):
             if scan_outcome == "matched":
-                GLib.idle_add(self.overlay.finish_success)
+                pass  # finish_success was triggered immediately upon match
             elif scan_outcome == "low_light":
                 GLib.idle_add(self.overlay.finish_failure, "Enter Password", "Low Light", 2200)
             elif scan_outcome == "no_face_timeout":
@@ -459,6 +474,9 @@ class FaceUnlockCoordinator:
             self._schedule_auto_retry()
 
     def _schedule_auto_retry(self) -> None:
+        self.settings = BlinkSettings.load()
+        if not self.settings.is_face_unlock_enabled:
+            return
         if self.settings.auto_retry_once and not self.has_auto_retried_for_current_lock:
             self.has_auto_retried_for_current_lock = True
             time.sleep(1.5)
