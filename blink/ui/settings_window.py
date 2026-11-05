@@ -41,7 +41,7 @@ from blink.system.keystroke_injector import KeystrokeInjector
 MACOS_CSS = """
 /* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5 · weakest: S, authentic macOS System Settings */
 window.macos-window {
-    background-color: #141416;
+    background-color: #161618;
     color: #FFFFFF;
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Segoe UI", Roboto, Cantarell, sans-serif;
     border-radius: 10px;
@@ -61,22 +61,25 @@ headerbar .title {
 
 /* Sidebar */
 .sidebar {
-    background-color: #1A1A1D;
+    background-color: #171719;
     border-right: 1px solid rgba(255, 255, 255, 0.07);
 }
 .sidebar-search-box {
-    padding: 10px 10px 6px 10px;
+    padding: 12px 10px 8px 10px;
 }
-.search-entry {
-    background-color: #121214;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+entry.search-entry {
+    background-color: #212124;
+    border: 1px solid rgba(255, 255, 255, 0.10);
     border-radius: 6px;
     color: #FFFFFF;
     font-size: 12px;
-    padding: 4px 8px;
+    padding: 5px 10px;
     min-height: 24px;
 }
-.search-entry:focus {
+entry.search-entry placeholder {
+    color: #8E8E93;
+}
+entry.search-entry:focus {
     border-color: #007AFF;
 }
 
@@ -86,48 +89,48 @@ list.sidebar-list {
 list.sidebar-list row {
     background-color: transparent;
     border-radius: 6px;
-    padding: 5px 8px;
-    margin: 1px 8px;
+    padding: 6px 10px;
+    margin: 2px 8px;
     color: #C7C7CC;
     border: none;
 }
 list.sidebar-list row:hover {
-    background-color: rgba(255, 255, 255, 0.06);
+    background-color: rgba(255, 255, 255, 0.05);
     color: #FFFFFF;
 }
 list.sidebar-list row:selected {
-    background-color: #007AFF;
+    background-color: rgba(255, 255, 255, 0.12);
     color: #FFFFFF;
 }
 list.sidebar-list row:selected label {
-    font-weight: 500;
+    font-weight: 600;
     color: #FFFFFF;
 }
 
 /* Content Pane */
 .content-scroll {
-    background-color: #141416;
+    background-color: #161618;
 }
 .content-box {
     padding: 24px 32px 48px 32px;
 }
 .page-title {
-    font-size: 20px;
+    font-size: 22px;
     font-weight: 600;
     color: #FFFFFF;
-    margin-bottom: 16px;
+    margin-bottom: 18px;
 }
 .group-title {
     font-size: 12px;
-    font-weight: 400;
-    color: #86868B;
-    margin-top: 18px;
+    font-weight: 500;
+    color: #8E8E93;
+    margin-top: 20px;
     margin-bottom: 6px;
     margin-left: 2px;
 }
 .group-footnote {
-    font-size: 11px;
-    color: #86868B;
+    font-size: 11.5px;
+    color: #8E8E93;
     margin-top: 6px;
     margin-bottom: 16px;
     margin-left: 2px;
@@ -135,8 +138,8 @@ list.sidebar-list row:selected label {
 
 /* Inset Group Cards */
 .inset-group {
-    background-color: #1E1E22;
-    border: 1px solid rgba(255, 255, 255, 0.07);
+    background-color: #222226;
+    border: 1px solid rgba(255, 255, 255, 0.09);
     border-radius: 10px;
     padding: 0;
 }
@@ -145,7 +148,7 @@ list.sidebar-list row:selected label {
     min-height: 42px;
 }
 .inset-divider {
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: rgba(255, 255, 255, 0.06);
     min-height: 1px;
     margin-left: 14px;
 }
@@ -156,22 +159,22 @@ list.sidebar-list row:selected label {
 }
 .row-desc {
     font-size: 11px;
-    color: #86868B;
+    color: #8E8E93;
 }
 
 /* Buttons */
 .btn-macos {
-    background-color: #2C2C30;
+    background-color: rgba(255, 255, 255, 0.08);
     color: #FFFFFF;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     border-radius: 6px;
     font-size: 12px;
-    font-weight: 400;
-    padding: 3px 12px;
+    font-weight: 500;
+    padding: 4px 14px;
     min-height: 24px;
 }
 .btn-macos:hover {
-    background-color: #38383D;
+    background-color: rgba(255, 255, 255, 0.15);
 }
 .btn-macos-primary {
     background-color: #007AFF;
@@ -179,7 +182,7 @@ list.sidebar-list row:selected label {
     border-radius: 6px;
     font-size: 12px;
     font-weight: 500;
-    padding: 4px 14px;
+    padding: 5px 16px;
     border: none;
     min-height: 24px;
 }
@@ -187,34 +190,44 @@ list.sidebar-list row:selected label {
     background-color: #0084FF;
 }
 .btn-macos-danger {
-    background-color: rgba(255, 59, 48, 0.12);
-    color: #FF3B30;
-    border: 1px solid rgba(255, 59, 48, 0.25);
-    border-radius: 5px;
-    font-size: 11px;
-    padding: 2px 8px;
+    background-color: rgba(255, 69, 58, 0.15);
+    color: #FF6259;
+    border: 1px solid rgba(255, 69, 58, 0.40);
+    border-radius: 6px;
+    font-size: 11.5px;
+    font-weight: 500;
+    padding: 3px 12px;
 }
 .btn-macos-danger:hover {
-    background-color: rgba(255, 59, 48, 0.22);
+    background-color: #FF453A;
+    color: #FFFFFF;
+    border-color: #FF453A;
 }
 
-/* Switches */
+/* Switches (Authentic Horizontal macOS Toggle) */
 switch {
     background-color: #39393D;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background-image: none;
+    border: 1px solid rgba(255, 255, 255, 0.15);
     border-radius: 13px;
-    min-width: 38px;
-    min-height: 22px;
+    min-width: 44px;
+    min-height: 24px;
+    padding: 0;
+    margin: 0;
 }
 switch:checked {
     background-color: #34C759;
+    background-image: none;
     border-color: #34C759;
 }
 switch slider {
     background-color: #FFFFFF;
+    background-image: none;
     border-radius: 50%;
-    min-width: 18px;
-    min-height: 18px;
+    min-width: 20px;
+    min-height: 20px;
+    margin: 1px;
+    border: none;
 }
 
 /* Sliders */
@@ -269,19 +282,20 @@ progressbar progress {
 
 
 # ------------------------------------------------------------------------------
-# Cairo Vector Icon Generators
+# Cairo Vector Icon Generators (2x Retina Supersampled)
 # ------------------------------------------------------------------------------
-def create_macos_icon(kind: str, bg_hex: str, size: int = 22) -> cairo.ImageSurface:
-    """Renders crisp authentic macOS squircle icons."""
-    surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, size, size)
+def create_macos_icon(kind: str, bg_hex: str, size: int = 24) -> cairo.ImageSurface:
+    """Renders 2x retina supersampled authentic macOS squircle icons."""
+    surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, size * 2, size * 2)
+    surf.set_device_scale(2.0, 2.0)
     cr = cairo.Context(surf)
     cr.set_antialias(cairo.ANTIALIAS_BEST)
 
     h = bg_hex.lstrip("#")
     r, g, b = [int(h[i:i+2], 16) / 255.0 for i in (0, 2, 4)]
 
-    # 5px radius squircle on 22px
-    rad = 5.0
+    # 6px radius squircle on 24px
+    rad = 6.0
     cr.new_sub_path()
     cr.arc(size - rad, rad, rad, -math.pi / 2, 0)
     cr.arc(size - rad, size - rad, rad, 0, math.pi / 2)
@@ -294,53 +308,79 @@ def create_macos_icon(kind: str, bg_hex: str, size: int = 22) -> cairo.ImageSurf
     cr.save()
     cr.translate(size / 2.0, size / 2.0)
     cr.set_source_rgb(1.0, 1.0, 1.0)
-    cr.set_line_width(1.3)
+    cr.set_line_width(1.5)
     cr.set_line_cap(cairo.LINE_CAP_ROUND)
     cr.set_line_join(cairo.LINE_JOIN_ROUND)
 
     if kind == "face_id":
-        # 4 corners
-        cr.move_to(-5, -2.5); cr.line_to(-5, -5); cr.line_to(-2.5, -5)
-        cr.move_to(2.5, -5); cr.line_to(5, -5); cr.line_to(5, -2.5)
-        cr.move_to(-5, 2.5); cr.line_to(-5, 5); cr.line_to(-2.5, 5)
-        cr.move_to(2.5, 5); cr.line_to(5, 5); cr.line_to(5, 2.5)
+        # 4 precise brackets
+        b_len = 2.8
+        cr.move_to(-5.5, -5.5 + b_len); cr.line_to(-5.5, -5.5); cr.line_to(-5.5 + b_len, -5.5)
+        cr.move_to(5.5 - b_len, -5.5); cr.line_to(5.5, -5.5); cr.line_to(5.5, -5.5 + b_len)
+        cr.move_to(-5.5, 5.5 - b_len); cr.line_to(-5.5, 5.5); cr.line_to(-5.5 + b_len, 5.5)
+        cr.move_to(5.5 - b_len, 5.5); cr.line_to(5.5, 5.5); cr.line_to(5.5, 5.5 - b_len)
         cr.stroke()
         # Eyes
-        cr.arc(-2, -1.8, 0.7, 0, 2 * math.pi); cr.fill()
-        cr.arc(2, -1.8, 0.7, 0, 2 * math.pi); cr.fill()
+        cr.arc(-2.2, -2.0, 0.9, 0, 2 * math.pi); cr.fill()
+        cr.arc(2.2, -2.0, 0.9, 0, 2 * math.pi); cr.fill()
         # Nose
-        cr.move_to(0, -0.5); cr.line_to(0, 1.2); cr.line_to(0.8, 1.2); cr.stroke()
+        cr.move_to(0, -0.6); cr.line_to(0, 1.3); cr.line_to(0.8, 1.3); cr.stroke()
         # Smile
         cr.new_sub_path()
-        cr.arc(0, 1.2, 2.6, 0.2 * math.pi, 0.8 * math.pi); cr.stroke()
+        cr.arc(0, 1.2, 2.8, 0.22 * math.pi, 0.78 * math.pi); cr.stroke()
 
     elif kind == "camera":
-        cr.rectangle(-5, -2.5, 10, 7.5); cr.fill()
-        cr.rectangle(-2, -4.2, 4, 1.7); cr.fill()
+        # Body
+        c_rad = 1.8
+        cr.new_sub_path()
+        cr.arc(5.5 - c_rad, -2.5 + c_rad, c_rad, -math.pi / 2, 0)
+        cr.arc(5.5 - c_rad, 5.5 - c_rad, c_rad, 0, math.pi / 2)
+        cr.arc(-5.5 + c_rad, 5.5 - c_rad, c_rad, math.pi / 2, math.pi)
+        cr.arc(-5.5 + c_rad, -2.5 + c_rad, c_rad, math.pi, 3 * math.pi / 2)
+        cr.close_path()
+        cr.fill()
+        # Top bump
+        cr.rectangle(-2.2, -4.5, 4.4, 2.0); cr.fill()
+        # Lens
         cr.set_source_rgb(r, g, b)
-        cr.arc(0, 1.2, 2.2, 0, 2 * math.pi); cr.fill()
-        cr.set_source_rgb(1, 1, 1)
-        cr.arc(0, 1.2, 0.9, 0, 2 * math.pi); cr.fill()
+        cr.arc(0, 1.5, 2.4, 0, 2 * math.pi); cr.fill()
+        cr.set_source_rgb(1.0, 1.0, 1.0)
+        cr.arc(0, 1.5, 1.2, 0, 2 * math.pi); cr.fill()
+        # Optical glare dot
+        cr.arc(0.7, 0.8, 0.45, 0, 2 * math.pi); cr.fill()
 
     elif kind == "liveness":
-        cr.new_sub_path()
-        cr.arc(0, -4.5, 6.5, 0.3 * math.pi, 0.7 * math.pi); cr.stroke()
-        cr.new_sub_path()
-        cr.arc(0, 4.5, 6.5, 1.3 * math.pi, 1.7 * math.pi); cr.stroke()
-        cr.arc(0, 0, 2.4, 0, 2 * math.pi); cr.fill()
-        cr.set_source_rgb(r, g, b)
-        cr.arc(0, 0, 1.0, 0, 2 * math.pi); cr.fill()
+        # Apple Security Shield with Checkmark
+        cr.move_to(0, -5.5)
+        cr.curve_to(2.0, -5.5, 4.5, -4.8, 5.0, -3.2)
+        cr.curve_to(5.0, 1.5, 2.5, 4.8, 0, 6.0)
+        cr.curve_to(-2.5, 4.8, -5.0, 1.5, -5.0, -3.2)
+        cr.curve_to(-4.5, -4.8, -2.0, -5.5, 0, -5.5)
+        cr.close_path()
+        cr.stroke()
+        # Inner checkmark
+        cr.move_to(-2.2, 0.0); cr.line_to(-0.6, 1.8); cr.line_to(2.5, -1.8); cr.stroke()
 
     elif kind == "diagnostics":
-        cr.rectangle(-4.5, 0, 2.0, 5.0); cr.fill()
-        cr.rectangle(-1.0, -3.5, 2.0, 8.5); cr.fill()
-        cr.rectangle(2.5, -1.5, 2.0, 6.5); cr.fill()
+        cr.set_line_width(2.0)
+        cr.move_to(-3.6, 3.5); cr.line_to(-3.6, -1.0); cr.stroke()
+        cr.move_to(0.0, 3.5); cr.line_to(0.0, -4.5); cr.stroke()
+        cr.move_to(3.6, 3.5); cr.line_to(3.6, 0.5); cr.stroke()
 
     elif kind == "about":
-        cr.arc(0, -3.5, 1.0, 0, 2 * math.pi); cr.fill()
-        cr.rectangle(-0.8, -1.2, 1.6, 5.5); cr.fill()
-        cr.move_to(-1.8, -1.2); cr.line_to(0, -1.2); cr.stroke()
-        cr.move_to(-1.8, 4.3); cr.line_to(1.8, 4.3); cr.stroke()
+        cr.set_line_width(1.3)
+        cr.arc(0, 0, 5.5, 0, 2 * math.pi); cr.stroke()
+        cr.arc(0, -2.4, 0.8, 0, 2 * math.pi); cr.fill()
+        cr.set_line_width(1.4)
+        cr.move_to(0, -0.6); cr.line_to(0, 2.8); cr.stroke()
+
+    elif kind == "avatar":
+        # Clean user profile silhouette
+        cr.arc(0, -2.2, 2.8, 0, 2 * math.pi)
+        cr.fill()
+        cr.new_sub_path()
+        cr.arc(0, 7.0, 6.2, math.pi, 2 * math.pi)
+        cr.fill()
 
     cr.restore()
     return surf
@@ -352,8 +392,8 @@ def create_macos_icon(kind: str, bg_hex: str, size: int = 22) -> cairo.ImageSurf
 class SettingsWindow(Gtk.Window):
     def __init__(self):
         super().__init__(title="Blink")
-        self.set_default_size(900, 620)
-        self.set_size_request(760, 520)
+        self.set_default_size(920, 640)
+        self.set_size_request(780, 540)
         self.set_position(Gtk.WindowPosition.CENTER)
 
         self._apply_css()
@@ -464,8 +504,8 @@ class SettingsWindow(Gtk.Window):
         row._page_id = page_id
         row._title_text = label_text
 
-        h = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
-        icon_surf = create_macos_icon(icon_kind, icon_color, 22)
+        h = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        icon_surf = create_macos_icon(icon_kind, icon_color, 24)
         h.pack_start(Gtk.Image.new_from_surface(icon_surf), False, False, 0)
 
         lbl = Gtk.Label(label=label_text)
@@ -497,22 +537,30 @@ class SettingsWindow(Gtk.Window):
             self.camera.stop()
 
     # --------------------------------------------------------------------------
-    # Inset Card Helpers
+    # Inset Card Helpers with Constrained Width (Anti-Stretch)
     # --------------------------------------------------------------------------
     def _create_page_wrapper(self, title: str) -> Tuple[Gtk.ScrolledWindow, Gtk.Box]:
         scroll = Gtk.ScrolledWindow()
         scroll.get_style_context().add_class("content-scroll")
-        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
 
+        # Outer box to center or left-align with max-width
+        outer_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+        # Constrained content container (never stretches across wide screens!)
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         vbox.get_style_context().add_class("content-box")
+        vbox.set_halign(Gtk.Align.START)
+        vbox.set_hexpand(False)
+        vbox.set_size_request(660, -1)
 
         lbl_t = Gtk.Label(label=title)
         lbl_t.set_xalign(0)
         lbl_t.get_style_context().add_class("page-title")
         vbox.pack_start(lbl_t, False, False, 0)
 
-        scroll.add(vbox)
+        outer_box.pack_start(vbox, True, True, 0)
+        scroll.add(outer_box)
         return scroll, vbox
 
     def _create_group_heading(self, text: str) -> Gtk.Label:
@@ -534,7 +582,7 @@ class SettingsWindow(Gtk.Window):
         return group
 
     def _add_inset_row(self, group: Gtk.Box, title: str, subtitle: Optional[str] = None, control: Optional[Gtk.Widget] = None, is_last: bool = False) -> None:
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
         row.get_style_context().add_class("inset-row")
 
         text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -552,6 +600,9 @@ class SettingsWindow(Gtk.Window):
         row.pack_start(text_box, True, True, 0)
 
         if control:
+            # Enforce vertical centering so switches and buttons never stretch vertically!
+            control.set_valign(Gtk.Align.CENTER)
+            control.set_halign(Gtk.Align.END)
             row.pack_end(control, False, False, 0)
 
         group.pack_start(row, False, False, 0)
@@ -700,6 +751,7 @@ class SettingsWindow(Gtk.Window):
 
             btn_add = Gtk.Button(label="Add Face...")
             btn_add.get_style_context().add_class("btn-macos-primary")
+            btn_add.set_valign(Gtk.Align.CENTER)
             btn_add.connect("clicked", self._start_enrollment_wizard)
             row.pack_end(btn_add, False, False, 0)
             self.group_profiles.pack_start(row, False, False, 0)
@@ -709,7 +761,7 @@ class SettingsWindow(Gtk.Window):
                 row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
                 row.get_style_context().add_class("inset-row")
 
-                icon_surf = create_macos_icon("face_id", "#007AFF", 20)
+                icon_surf = create_macos_icon("avatar", "#48484A", 28)
                 row.pack_start(Gtk.Image.new_from_surface(icon_surf), False, False, 0)
 
                 v = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -725,19 +777,13 @@ class SettingsWindow(Gtk.Window):
                 v.pack_start(sub_lbl, False, False, 0)
                 row.pack_start(v, True, True, 0)
 
-                # Active Switch + Delete Button
-                h_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-                sw = Gtk.Switch()
-                sw.set_active(ident.get("is_enabled", True))
-                sw.connect("notify::active", self._on_toggle_identity, ident["id"])
-                h_actions.pack_start(sw, False, False, 0)
-
+                # Crisp Delete Button (clean Apple red button)
                 btn_del = Gtk.Button(label="Delete")
                 btn_del.get_style_context().add_class("btn-macos-danger")
+                btn_del.set_valign(Gtk.Align.CENTER)
                 btn_del.connect("clicked", self._on_delete_identity, ident["id"])
-                h_actions.pack_start(btn_del, False, False, 0)
+                row.pack_end(btn_del, False, False, 0)
 
-                row.pack_end(h_actions, False, False, 0)
                 self.group_profiles.pack_start(row, False, False, 0)
 
                 if not is_last:
@@ -758,7 +804,8 @@ class SettingsWindow(Gtk.Window):
             add_row.pack_start(lbl_more, True, True, 0)
 
             btn_add = Gtk.Button(label="Add Face...")
-            btn_add.get_style_context().add_class("btn-macos")
+            btn_add.get_style_context().add_class("btn-macos-primary")
+            btn_add.set_valign(Gtk.Align.CENTER)
             btn_add.connect("clicked", self._start_enrollment_wizard)
             add_row.pack_end(btn_add, False, False, 0)
             self.group_profiles.pack_start(add_row, False, False, 0)
@@ -853,7 +900,7 @@ class SettingsWindow(Gtk.Window):
         view_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         view_box.get_style_context().add_class("viewfinder-card")
         self.img_facelab = Gtk.Image()
-        self.img_facelab.set_size_request(420, 315)
+        self.img_facelab.set_size_request(400, 300)
         view_box.pack_start(self.img_facelab, True, True, 0)
         hbox.pack_start(view_box, False, False, 0)
 
@@ -864,7 +911,7 @@ class SettingsWindow(Gtk.Window):
         self.lbl_fl_sim.set_xalign(1)
         self.lbl_fl_sim.get_style_context().add_class("row-desc")
         self.prog_fl_sim = Gtk.ProgressBar()
-        self.prog_fl_sim.set_size_request(160, -1)
+        self.prog_fl_sim.set_size_request(140, -1)
         h_sim = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         h_sim.pack_start(self.prog_fl_sim, True, True, 0)
         h_sim.pack_start(self.lbl_fl_sim, False, False, 0)
@@ -878,7 +925,7 @@ class SettingsWindow(Gtk.Window):
             lbl.set_xalign(1)
             lbl.get_style_context().add_class("row-desc")
             prog = Gtk.ProgressBar()
-            prog.set_size_request(160, -1)
+            prog.set_size_request(140, -1)
             c_box.pack_start(prog, True, True, 0)
             c_box.pack_start(lbl, False, False, 0)
             self.fl_cue_labels[cue] = lbl
@@ -1077,13 +1124,6 @@ class SettingsWindow(Gtk.Window):
 
         dialog.destroy()
 
-    def _on_toggle_identity(self, switch, gparam, ident_id: str) -> None:
-        identities = SecureFaceStore.load_identities()
-        for ident in identities:
-            if ident["id"] == ident_id:
-                ident["is_enabled"] = switch.get_active()
-        SecureFaceStore.save_identities(identities)
-
     def _on_delete_identity(self, button, ident_id: str) -> None:
         dialog = Gtk.MessageDialog(
             transient_for=self,
@@ -1188,7 +1228,7 @@ class SettingsWindow(Gtk.Window):
 
                     self.lbl_fl_decision.set_text(decision.kind.value.capitalize())
 
-            pixbuf = self._cv2_to_pixbuf(disp, 420, 315)
+            pixbuf = self._cv2_to_pixbuf(disp, 400, 300)
             if pixbuf:
                 self.img_facelab.set_from_pixbuf(pixbuf)
 
