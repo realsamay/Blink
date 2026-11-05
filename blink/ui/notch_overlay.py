@@ -121,10 +121,10 @@ class LinuxNotchOverlayWindow(Gtk.Window):
         self._is_dead = False
         self._current_parent_xid = None
 
-        # Compact, balanced squarish card: 190x190 with 36px rounded corners (matches website design)
-        self.card_size = 190.0
-        self.corner_radius = 36.0
-        self.video_size = 136.0
+        # Compact, balanced squarish card: 148x148 with 28px rounded corners (matches website design, scaled for screen)
+        self.card_size = 148.0
+        self.corner_radius = 28.0
+        self.video_size = 104.0
 
         # Preload animations into memory
         AnimationAssets.load_all(target_size=int(self.video_size))
@@ -154,8 +154,8 @@ class LinuxNotchOverlayWindow(Gtk.Window):
         self.shake_decay = 0.0
 
         # Fluid vertical pop-out from camera notch
-        self.target_y = 16.0
-        self.current_y = self.target_y - 45.0
+        self.target_y = 14.0
+        self.current_y = self.target_y - 35.0
 
         # Event handling
         self.add_events(
@@ -314,7 +314,7 @@ class LinuxNotchOverlayWindow(Gtk.Window):
             x = geom.x + (geom.width - int(self.card_size)) // 2
             y = int(self.current_y)
             try:
-                print(f"[NotchOverlay] Reparenting card {hex(xid)} (190x190) into screensaver {hex(ss_xid)}")
+                print(f"[NotchOverlay] Reparenting card {hex(xid)} (148x148) into screensaver {hex(ss_xid)}")
                 x11.XReparentWindow(_X11_DISP, xid, ss_xid, int(x), int(y))
                 self._current_parent_xid = ss_xid
                 if show:
@@ -364,7 +364,7 @@ class LinuxNotchOverlayWindow(Gtk.Window):
 
         self.phase = OverlayPhase.SCANNING
         self.idle_frame_idx = 0
-        self.current_y = self.target_y - 45.0
+        self.current_y = self.target_y - 35.0
         self.show_all()
         if x11 and _X11_DISP:
             gdk_win = self.get_window()
@@ -535,10 +535,10 @@ class LinuxNotchOverlayWindow(Gtk.Window):
         cr.clip()
 
         # Video container with rounded corners (centered horizontally)
-        v_size = float(getattr(self, "video_size", 136.0))
+        v_size = float(getattr(self, "video_size", 104.0))
         vx = (w - v_size) / 2.0
-        vy = 12.0
-        v_rad = 22.0
+        vy = 8.0
+        v_rad = 18.0
 
         cr.save()
         cr.new_sub_path()
@@ -566,7 +566,7 @@ class LinuxNotchOverlayWindow(Gtk.Window):
 
         # Status Pill Banner (Website Authentic Apple Style)
         cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
-        cr.set_font_size(9.0)
+        cr.set_font_size(7.8)
 
         has_vector_check = False
         if self.phase == OverlayPhase.SUCCESS:
@@ -584,12 +584,12 @@ class LinuxNotchOverlayWindow(Gtk.Window):
             pill_bg = (1.0, 1.0, 1.0, 0.10)
 
         ext = cr.text_extents(banner_text)
-        extra_w = 28.0 if has_vector_check else 18.0
+        extra_w = 22.0 if has_vector_check else 16.0
         pw = ext.width + extra_w
-        ph = 18.0
+        ph = 16.0
         px = (w - pw) / 2.0
-        py = 156.0
-        prad = 9.0
+        py = 118.0
+        prad = 8.0
 
         # Draw rounded pill background
         cr.new_sub_path()
@@ -603,7 +603,7 @@ class LinuxNotchOverlayWindow(Gtk.Window):
 
         # Draw text inside pill
         if has_vector_check:
-            tx = px + 9.0 - ext.x_bearing
+            tx = px + 8.0 - ext.x_bearing
         else:
             tx = px + (pw - ext.width) / 2.0 - ext.x_bearing
         ty = py + (ph - ext.height) / 2.0 - ext.y_bearing
@@ -613,15 +613,15 @@ class LinuxNotchOverlayWindow(Gtk.Window):
 
         # Draw crisp vector checkmark if success (zero tofu glyph risk)
         if has_vector_check:
-            ck_x = tx + ext.width + 6.0
+            ck_x = tx + ext.width + 5.0
             ck_y = py + ph / 2.0
             cr.set_source_rgba(0.0, 0.90, 0.40, 1.0)
-            cr.set_line_width(1.8)
+            cr.set_line_width(1.6)
             cr.set_line_cap(cairo.LINE_CAP_ROUND)
             cr.set_line_join(cairo.LINE_JOIN_ROUND)
-            cr.move_to(ck_x - 3.5, ck_y)
-            cr.line_to(ck_x - 1.0, ck_y + 2.5)
-            cr.line_to(ck_x + 3.5, ck_y - 2.5)
+            cr.move_to(ck_x - 3.0, ck_y)
+            cr.line_to(ck_x - 0.8, ck_y + 2.0)
+            cr.line_to(ck_x + 3.0, ck_y - 2.0)
             cr.stroke()
 
         cr.reset_clip()

@@ -140,9 +140,9 @@ class WindowsNotchOverlayWindow:
         self._is_dead = False
         self._is_desktop_preview = False
 
-        self.card_size = 190.0
-        self.corner_radius = 36.0
-        self.video_size = 136.0
+        self.card_size = 148.0
+        self.corner_radius = 28.0
+        self.video_size = 104.0
 
         AnimationAssets.load_all(target_size=int(self.video_size))
 
@@ -155,8 +155,8 @@ class WindowsNotchOverlayWindow:
         self.shake_decay = 0.0
 
         # Vertical pop-out physics from webcam bezel
-        self.target_y = 16.0
-        self.current_y = self.target_y - 45.0
+        self.target_y = 14.0
+        self.current_y = self.target_y - 35.0
 
         self._hwnd: Optional[int] = None
         self._ui_thread: Optional[threading.Thread] = None
@@ -308,9 +308,9 @@ class WindowsNotchOverlayWindow:
 
         w = int(self.card_size)
         h = int(self.card_size)
-        v_size = int(getattr(self, "video_size", 136))
+        v_size = int(getattr(self, "video_size", 104))
         vx = (w - v_size) // 2
-        vy = 12
+        vy = 8
 
         # Base obsidian canvas: RGBA (8, 5, 5, 255)
         canvas = np.full((h, w, 4), (8, 5, 5, 255), dtype=np.uint8)
@@ -347,18 +347,18 @@ class WindowsNotchOverlayWindow:
             border_color = (76, 64, 64)  # Subtle dark slate in BGR
 
         # Draw status pill background at bottom
-        pill_y1 = 156
-        pill_y2 = 174
-        pill_w = 140
+        pill_y1 = 118
+        pill_y2 = 134
+        pill_w = 120
         pill_x1 = (w - pill_w) // 2
         pill_x2 = pill_x1 + pill_w
         cv2.rectangle(canvas, (pill_x1, pill_y1), (pill_x2, pill_y2), (32, 28, 28, 255), thickness=-1)
         cv2.putText(
             canvas,
             banner_text,
-            (pill_x1 + 10, pill_y1 + 13),
+            (pill_x1 + 8, pill_y1 + 11),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.36,
+            0.30,
             text_color + (255,),
             1,
             cv2.LINE_AA
