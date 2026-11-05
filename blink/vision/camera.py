@@ -62,10 +62,12 @@ class CameraManager:
         for dev in sorted(glob.glob("/dev/video*")):
             try:
                 idx = int(dev.replace("/dev/video", ""))
-                # Quick probe without hanging
+                # Quick probe checking that it actually streams video frames
                 cap = cv2.VideoCapture(idx)
                 if cap.isOpened():
-                    devices.append(idx)
+                    ret, _ = cap.read()
+                    if ret:
+                        devices.append(idx)
                     cap.release()
             except Exception:
                 continue
@@ -82,10 +84,15 @@ class CameraManager:
         backend = cv2.CAP_DSHOW if IS_WINDOWS else cv2.CAP_ANY
         self._cap = cv2.VideoCapture(self.device_index, backend)
         if not self._cap.isOpened():
-            dev_str = f"index {self.device_index}" if IS_WINDOWS else f"/dev/video{self.device_index}"
-            self.error_message = f"Could not open camera {dev_str}."
-            print(f"[CameraManager] {self.error_message}")
-            return False
+            if self.device_index != 0:
+                print(f"[CameraManager] Camera index {self.device_index} failed to open. Falling back to device 0.")
+                self.device_index = 0
+                self._cap = cv2.VideoCapture(0, backend)
+            if not self._cap.isOpened():
+                dev_str = f"index {self.device_index}" if IS_WINDOWS else f"/dev/video{self.device_index}"
+                self.error_message = f"Could not open camera {dev_str}."
+                print(f"[CameraManager] {self.error_message}")
+                return False
 
         # Request 640x480 at 30fps
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
