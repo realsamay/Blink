@@ -81,7 +81,7 @@ class AnimationAssets:
     failure_buffers: List[np.ndarray] = []
 
     @classmethod
-    def load_all(cls, target_size: int = 100) -> None:
+    def load_all(cls, target_size: int = 136) -> None:
         with cls._loading_lock:
             if cls._loaded:
                 return
@@ -121,12 +121,13 @@ class LinuxNotchOverlayWindow(Gtk.Window):
         self._is_dead = False
         self._current_parent_xid = None
 
-        # Compact, balanced squarish card: 100x100 with 22px rounded corners
-        self.card_size = 100.0
-        self.corner_radius = 22.0
+        # Compact, balanced squarish card: 190x190 with 36px rounded corners (matches website design)
+        self.card_size = 190.0
+        self.corner_radius = 36.0
+        self.video_size = 136.0
 
         # Preload animations into memory
-        AnimationAssets.load_all(target_size=int(self.card_size))
+        AnimationAssets.load_all(target_size=int(self.video_size))
 
         # Window configuration
         self.set_decorated(False)
@@ -153,8 +154,8 @@ class LinuxNotchOverlayWindow(Gtk.Window):
         self.shake_decay = 0.0
 
         # Fluid vertical pop-out from camera notch
-        self.target_y = 12.0
-        self.current_y = self.target_y - 30.0
+        self.target_y = 16.0
+        self.current_y = self.target_y - 45.0
 
         # Event handling
         self.add_events(
@@ -313,7 +314,7 @@ class LinuxNotchOverlayWindow(Gtk.Window):
             x = geom.x + (geom.width - int(self.card_size)) // 2
             y = int(self.target_y)
             try:
-                print(f"[NotchOverlay] Attaching rounded card {hex(xid)} (100x100) into screensaver {hex(ss_xid)} at ({x}, {y})")
+                print(f"[NotchOverlay] Attaching rounded card {hex(xid)} (190x190) into screensaver {hex(ss_xid)} at ({x}, {y})")
                 x11.XReparentWindow(_X11_DISP, xid, ss_xid, int(x), int(y))
                 x11.XMapWindow(_X11_DISP, xid)
                 x11.XRaiseWindow(_X11_DISP, xid)
@@ -353,7 +354,7 @@ class LinuxNotchOverlayWindow(Gtk.Window):
             return
         self.phase = OverlayPhase.SCANNING
         self.idle_frame_idx = 0
-        self.current_y = self.target_y - 25.0
+        self.current_y = self.target_y - 45.0
         self.show_all()
         self.apply_shape_mask()
         self.reposition()
@@ -365,6 +366,7 @@ class LinuxNotchOverlayWindow(Gtk.Window):
             self.hide()
             return
         self.phase = OverlayPhase.SCANNING
+        self.current_y = self.target_y - 45.0
         self.show_all()
         self.apply_shape_mask()
         self.reposition()
@@ -521,10 +523,25 @@ class LinuxNotchOverlayWindow(Gtk.Window):
         cr.close_path()
 
         # Obsidian black glass background
-        cr.set_source_rgba(0.02, 0.02, 0.03, 0.98)
+        cr.set_source_rgba(0.01, 0.01, 0.02, 0.98)
         cr.fill_preserve()
 
         # Clip content to rounded card
+        cr.clip()
+
+        # Video container with rounded corners (centered horizontally)
+        v_size = float(getattr(self, "video_size", 136.0))
+        vx = (w - v_size) / 2.0
+        vy = 12.0
+        v_rad = 22.0
+
+        cr.save()
+        cr.new_sub_path()
+        cr.arc(vx + v_size - v_rad, vy + v_rad, v_rad, -math.pi / 2, 0)
+        cr.arc(vx + v_size - v_rad, vy + v_size - v_rad, v_rad, 0, math.pi / 2)
+        cr.arc(vx + v_rad, vy + v_size - v_rad, v_rad, math.pi / 2, math.pi)
+        cr.arc(vx + v_rad, vy + v_rad, v_rad, math.pi, 3 * math.pi / 2)
+        cr.close_path()
         cr.clip()
 
         # Paint active animation surface
@@ -537,8 +554,70 @@ class LinuxNotchOverlayWindow(Gtk.Window):
             curr_surf = AnimationAssets.idle_surfaces[self.idle_frame_idx]
 
         if curr_surf is not None:
-            cr.set_source_surface(curr_surf, 0, 0)
+            cr.set_source_surface(curr_surf, vx, vy)
             cr.paint()
+
+        cr.restore()  # restore from video clip
+
+        # Status Pill Banner (Website Authentic Apple Style)
+        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+        cr.set_font_size(9.0)
+
+        has_vector_check = False
+        if self.phase == OverlayPhase.SUCCESS:
+            banner_text = "VERIFIED • UNLOCKED"
+            has_vector_check = True
+            text_color = (0.0, 0.90, 0.40, 1.0)
+            pill_bg = (1.0, 1.0, 1.0, 0.12)
+        elif self.phase == OverlayPhase.FAILURE:
+            banner_text = "NOT RECOGNIZED • RETRY"
+            text_color = (1.0, 0.27, 0.23, 1.0)
+            pill_bg = (1.0, 0.27, 0.23, 0.14)
+        else:
+            banner_text = "FACE ID • SCANNING"
+            text_color = (0.0, 0.85, 0.25, 0.95)
+            pill_bg = (1.0, 1.0, 1.0, 0.10)
+
+        ext = cr.text_extents(banner_text)
+        extra_w = 28.0 if has_vector_check else 18.0
+        pw = ext.width + extra_w
+        ph = 18.0
+        px = (w - pw) / 2.0
+        py = 156.0
+        prad = 9.0
+
+        # Draw rounded pill background
+        cr.new_sub_path()
+        cr.arc(px + pw - prad, py + prad, prad, -math.pi / 2, 0)
+        cr.arc(px + pw - prad, py + ph - prad, prad, 0, math.pi / 2)
+        cr.arc(px + prad, py + ph - prad, prad, math.pi / 2, math.pi)
+        cr.arc(px + prad, py + prad, prad, math.pi, 3 * math.pi / 2)
+        cr.close_path()
+        cr.set_source_rgba(*pill_bg)
+        cr.fill()
+
+        # Draw text inside pill
+        if has_vector_check:
+            tx = px + 9.0 - ext.x_bearing
+        else:
+            tx = px + (pw - ext.width) / 2.0 - ext.x_bearing
+        ty = py + (ph - ext.height) / 2.0 - ext.y_bearing
+        cr.move_to(tx, ty)
+        cr.set_source_rgba(*text_color)
+        cr.show_text(banner_text)
+
+        # Draw crisp vector checkmark if success (zero tofu glyph risk)
+        if has_vector_check:
+            ck_x = tx + ext.width + 6.0
+            ck_y = py + ph / 2.0
+            cr.set_source_rgba(0.0, 0.90, 0.40, 1.0)
+            cr.set_line_width(1.8)
+            cr.set_line_cap(cairo.LINE_CAP_ROUND)
+            cr.set_line_join(cairo.LINE_JOIN_ROUND)
+            cr.move_to(ck_x - 3.5, ck_y)
+            cr.line_to(ck_x - 1.0, ck_y + 2.5)
+            cr.line_to(ck_x + 3.5, ck_y - 2.5)
+            cr.stroke()
 
         cr.reset_clip()
 
@@ -551,13 +630,13 @@ class LinuxNotchOverlayWindow(Gtk.Window):
         cr.close_path()
 
         if self.phase == OverlayPhase.SUCCESS:
-            cr.set_source_rgba(0.19, 0.82, 0.35, 0.90)  # Apple Green
+            cr.set_source_rgba(0.19, 0.85, 0.35, 0.95)  # Apple Green
             cr.set_line_width(2.0)
         elif self.phase == OverlayPhase.FAILURE:
-            cr.set_source_rgba(1.0, 0.27, 0.23, 0.90)  # Apple Red
+            cr.set_source_rgba(1.0, 0.27, 0.23, 0.95)  # Apple Red
             cr.set_line_width(2.0)
         else:
-            cr.set_source_rgba(0.25, 0.25, 0.30, 0.60)  # Subtle Dark Slate
+            cr.set_source_rgba(0.25, 0.25, 0.30, 0.70)  # Subtle Dark Slate
             cr.set_line_width(1.5)
         cr.stroke()
 

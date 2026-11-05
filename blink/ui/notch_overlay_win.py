@@ -95,7 +95,7 @@ class AnimationAssets:
     failure_surfaces: List[Any] = []
 
     @classmethod
-    def load_all(cls, target_size: int = 100) -> None:
+    def load_all(cls, target_size: int = 136) -> None:
         with cls._loading_lock:
             if cls._loaded:
                 return
@@ -140,10 +140,11 @@ class WindowsNotchOverlayWindow:
         self._is_dead = False
         self._is_desktop_preview = False
 
-        self.card_size = 100.0
-        self.corner_radius = 22.0
+        self.card_size = 190.0
+        self.corner_radius = 36.0
+        self.video_size = 136.0
 
-        AnimationAssets.load_all(target_size=int(self.card_size))
+        AnimationAssets.load_all(target_size=int(self.video_size))
 
         self.phase = OverlayPhase.CLOSED
         self.idle_frame_idx = 0
@@ -154,8 +155,8 @@ class WindowsNotchOverlayWindow:
         self.shake_decay = 0.0
 
         # Vertical pop-out physics from webcam bezel
-        self.target_y = 12.0
-        self.current_y = self.target_y - 30.0
+        self.target_y = 16.0
+        self.current_y = self.target_y - 45.0
 
         self._hwnd: Optional[int] = None
         self._ui_thread: Optional[threading.Thread] = None
@@ -307,8 +308,11 @@ class WindowsNotchOverlayWindow:
 
         w = int(self.card_size)
         h = int(self.card_size)
+        v_size = int(getattr(self, "video_size", 136))
+        vx = (w - v_size) // 2
+        vy = 12
 
-        # Base obsidian canvas: RGBA (5, 5, 8, 255)
+        # Base obsidian canvas: RGBA (8, 5, 5, 255)
         canvas = np.full((h, w, 4), (8, 5, 5, 255), dtype=np.uint8)
 
         # Blit active animation surface
@@ -323,16 +327,42 @@ class WindowsNotchOverlayWindow:
             idx = self.idle_frame_idx % len(AnimationAssets.idle_buffers)
             frame = AnimationAssets.idle_buffers[idx]
 
-        if frame is not None and frame.shape[:2] == (h, w):
+        if frame is not None and frame.shape[:2] == (v_size, v_size):
             alpha = frame[:, :, 3:4] / 255.0
-            canvas[:, :, :3] = (frame[:, :, :3] * alpha + canvas[:, :, :3] * (1.0 - alpha)).astype(np.uint8)
+            target_roi = canvas[vy:vy + v_size, vx:vx + v_size, :3]
+            canvas[vy:vy + v_size, vx:vx + v_size, :3] = (frame[:, :, :3] * alpha + target_roi * (1.0 - alpha)).astype(np.uint8)
 
-        # Border color based on phase
-        border_color = (76, 64, 64)  # Subtle dark slate in BGR
+        # Status Pill Banner (Website Style)
         if self.phase == OverlayPhase.SUCCESS:
-            border_color = (88, 209, 48)  # Apple Green
+            banner_text = "VERIFIED • UNLOCKED"
+            text_color = (102, 230, 0)  # Apple Green in BGR
+            border_color = (88, 209, 48)  # Apple Green in BGR
         elif self.phase == OverlayPhase.FAILURE:
-            border_color = (58, 69, 255)  # Apple Red
+            banner_text = "NOT RECOGNIZED"
+            text_color = (58, 69, 255)  # Apple Red in BGR
+            border_color = (58, 69, 255)  # Apple Red in BGR
+        else:
+            banner_text = "FACE ID • SCANNING"
+            text_color = (64, 217, 0)  # Subtle Green in BGR
+            border_color = (76, 64, 64)  # Subtle dark slate in BGR
+
+        # Draw status pill background at bottom
+        pill_y1 = 156
+        pill_y2 = 174
+        pill_w = 140
+        pill_x1 = (w - pill_w) // 2
+        pill_x2 = pill_x1 + pill_w
+        cv2.rectangle(canvas, (pill_x1, pill_y1), (pill_x2, pill_y2), (32, 28, 28, 255), thickness=-1)
+        cv2.putText(
+            canvas,
+            banner_text,
+            (pill_x1 + 10, pill_y1 + 13),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.36,
+            text_color + (255,),
+            1,
+            cv2.LINE_AA
+        )
 
         # Draw smooth outer perimeter ring
         cv2.rectangle(canvas, (0, 0), (w - 1, h - 1), border_color + (255,), thickness=2)
