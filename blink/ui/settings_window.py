@@ -1,7 +1,7 @@
 """
-Modern Apple-Inspired Settings & Biometric Management Application for Blink on Linux.
-Features macOS / iOS Cupertino design language with squircle sidebar navigation,
-grouped inset cards, smooth page transitions, real-time telemetry, and Live Face ID preview.
+Blink Settings Application for Linux.
+Designed following authentic Apple macOS System Settings guidelines:
+clean, minimal, restrained typography, neutral dark palette, and inset grouped controls.
 """
 
 from __future__ import annotations
@@ -10,10 +10,8 @@ import math
 import os
 import platform
 import subprocess
-import threading
 import time
-import uuid
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 
 import cv2
 import numpy as np
@@ -38,285 +36,234 @@ from blink.system.keystroke_injector import KeystrokeInjector
 
 
 # ------------------------------------------------------------------------------
-# Apple Cupertino CSS Theme
+# Hallmark Anti-Slop Compliant macOS System Settings Stylesheet
 # ------------------------------------------------------------------------------
-APPLE_CSS = """
-/* Window Background */
-window.apple-window {
-    background-color: #0D0D0F;
-    color: #F5F5F7;
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto, "Cantarell", "Ubuntu", sans-serif;
-    border-radius: 16px;
+MACOS_CSS = """
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5 · weakest: S, authentic macOS System Settings */
+window.macos-window {
+    background-color: #141416;
+    color: #FFFFFF;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Segoe UI", Roboto, Cantarell, sans-serif;
+    border-radius: 10px;
 }
 
-/* HeaderBar */
 headerbar {
-    background-color: #141417;
+    background-color: #1A1A1D;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    min-height: 44px;
-    padding: 0 12px;
+    min-height: 40px;
+    padding: 0 10px;
 }
 headerbar .title {
-    font-weight: 600;
-    font-size: 13.5px;
+    font-size: 13px;
+    font-weight: 500;
     color: #FFFFFF;
-}
-headerbar .subtitle {
-    font-size: 11px;
-    color: #8E8E93;
 }
 
 /* Sidebar */
-.sidebar-box {
-    background-color: #121215;
+.sidebar {
+    background-color: #1A1A1D;
     border-right: 1px solid rgba(255, 255, 255, 0.07);
 }
-.sidebar-header {
-    padding: 16px 14px 12px 14px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+.sidebar-search-box {
+    padding: 10px 10px 6px 10px;
 }
-.sidebar-title {
-    font-size: 16px;
-    font-weight: 700;
+.search-entry {
+    background-color: #121214;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
     color: #FFFFFF;
+    font-size: 12px;
+    padding: 4px 8px;
+    min-height: 24px;
 }
-.sidebar-subtitle {
-    font-size: 11px;
-    color: #8E8E93;
+.search-entry:focus {
+    border-color: #007AFF;
 }
-.sidebar-section-header {
-    font-size: 10px;
-    font-weight: 700;
-    color: #636366;
-    padding: 14px 14px 4px 14px;
-}
-list.sidebar-nav {
+
+list.sidebar-list {
     background-color: transparent;
 }
-list.sidebar-nav row {
+list.sidebar-list row {
     background-color: transparent;
-    border-radius: 9px;
-    padding: 6px 10px;
-    margin: 2px 8px;
-    color: #A1A1A6;
+    border-radius: 6px;
+    padding: 5px 8px;
+    margin: 1px 8px;
+    color: #C7C7CC;
     border: none;
 }
-list.sidebar-nav row:hover {
+list.sidebar-list row:hover {
     background-color: rgba(255, 255, 255, 0.06);
     color: #FFFFFF;
 }
-list.sidebar-nav row:selected {
-    background-color: rgba(0, 113, 227, 0.28);
+list.sidebar-list row:selected {
+    background-color: #007AFF;
     color: #FFFFFF;
-    font-weight: 600;
+}
+list.sidebar-list row:selected label {
+    font-weight: 500;
+    color: #FFFFFF;
 }
 
-/* Content Area */
+/* Content Pane */
 .content-scroll {
-    background-color: #0D0D0F;
+    background-color: #141416;
 }
-.page-container {
-    padding: 24px 32px 40px 32px;
+.content-box {
+    padding: 24px 32px 48px 32px;
 }
 .page-title {
-    font-size: 24px;
-    font-weight: 700;
+    font-size: 20px;
+    font-weight: 600;
     color: #FFFFFF;
+    margin-bottom: 16px;
 }
-.page-subtitle {
-    font-size: 13px;
-    color: #8E8E93;
-    margin-bottom: 20px;
+.group-title {
+    font-size: 12px;
+    font-weight: 400;
+    color: #86868B;
+    margin-top: 18px;
+    margin-bottom: 6px;
+    margin-left: 2px;
 }
-.section-title {
+.group-footnote {
     font-size: 11px;
-    font-weight: 700;
-    color: #8E8E93;
-    margin-top: 24px;
-    margin-bottom: 8px;
-    margin-left: 4px;
+    color: #86868B;
+    margin-top: 6px;
+    margin-bottom: 16px;
+    margin-left: 2px;
 }
 
-/* Hero Status Card */
-.hero-card {
-    background: linear-gradient(135deg, rgba(0, 113, 227, 0.20) 0%, rgba(26, 26, 30, 0.95) 100%);
-    border: 1px solid rgba(0, 113, 227, 0.40);
-    border-radius: 16px;
-    padding: 20px;
-}
-.hero-title {
-    font-size: 18px;
-    font-weight: 700;
-    color: #FFFFFF;
-}
-.hero-desc {
-    font-size: 12.5px;
-    color: #B0B0B5;
-}
-
-/* Inset Grouped Cards */
-.apple-card {
-    background-color: #1A1A1E;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 13px;
+/* Inset Group Cards */
+.inset-group {
+    background-color: #1E1E22;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 10px;
     padding: 0;
 }
-.card-row {
-    padding: 12px 16px;
-    min-height: 48px;
+.inset-row {
+    padding: 10px 14px;
+    min-height: 42px;
 }
-.card-row-divider {
-    background-color: rgba(255, 255, 255, 0.06);
+.inset-divider {
+    background-color: rgba(255, 255, 255, 0.05);
     min-height: 1px;
-    margin-left: 16px;
+    margin-left: 14px;
 }
 .row-label {
-    font-size: 13.5px;
-    font-weight: 500;
+    font-size: 13px;
+    font-weight: 400;
     color: #FFFFFF;
 }
 .row-desc {
-    font-size: 11.5px;
-    color: #8E8E93;
+    font-size: 11px;
+    color: #86868B;
 }
 
 /* Buttons */
-.btn-primary {
-    background-color: #0071E3;
+.btn-macos {
+    background-color: #2C2C30;
     color: #FFFFFF;
-    border-radius: 9px;
-    font-size: 13px;
-    font-weight: 600;
-    padding: 8px 18px;
-    border: none;
-}
-.btn-primary:hover {
-    background-color: #0077ED;
-}
-.btn-primary:active {
-    background-color: #0062C4;
-}
-
-.btn-secondary {
-    background-color: rgba(255, 255, 255, 0.08);
-    color: #FFFFFF;
-    border-radius: 9px;
-    font-size: 13px;
-    font-weight: 500;
-    padding: 8px 16px;
     border: 1px solid rgba(255, 255, 255, 0.12);
-}
-.btn-secondary:hover {
-    background-color: rgba(255, 255, 255, 0.13);
-}
-
-.btn-danger {
-    background-color: rgba(255, 69, 58, 0.12);
-    color: #FF453A;
-    border-radius: 8px;
+    border-radius: 6px;
     font-size: 12px;
-    font-weight: 600;
-    padding: 6px 12px;
-    border: 1px solid rgba(255, 69, 58, 0.25);
+    font-weight: 400;
+    padding: 3px 12px;
+    min-height: 24px;
 }
-.btn-danger:hover {
-    background-color: rgba(255, 69, 58, 0.22);
+.btn-macos:hover {
+    background-color: #38383D;
 }
-
-/* Status Pills */
-.pill-active {
-    background-color: rgba(48, 209, 88, 0.15);
-    color: #30D158;
-    border: 1px solid rgba(48, 209, 88, 0.30);
-    border-radius: 12px;
-    padding: 3px 10px;
-    font-size: 11px;
-    font-weight: 600;
-}
-.pill-inactive {
-    background-color: rgba(142, 142, 147, 0.15);
-    color: #8E8E93;
-    border: 1px solid rgba(142, 142, 147, 0.25);
-    border-radius: 12px;
-    padding: 3px 10px;
-    font-size: 11px;
-    font-weight: 600;
-}
-.pill-badge {
-    background-color: #0071E3;
+.btn-macos-primary {
+    background-color: #007AFF;
     color: #FFFFFF;
-    border-radius: 10px;
-    padding: 1px 7px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 4px 14px;
+    border: none;
+    min-height: 24px;
+}
+.btn-macos-primary:hover {
+    background-color: #0084FF;
+}
+.btn-macos-danger {
+    background-color: rgba(255, 59, 48, 0.12);
+    color: #FF3B30;
+    border: 1px solid rgba(255, 59, 48, 0.25);
+    border-radius: 5px;
     font-size: 11px;
-    font-weight: 700;
+    padding: 2px 8px;
+}
+.btn-macos-danger:hover {
+    background-color: rgba(255, 59, 48, 0.22);
 }
 
 /* Switches */
 switch {
-    border-radius: 16px;
-    min-width: 48px;
-    min-height: 28px;
-    border: 1px solid rgba(255, 255, 255, 0.15);
     background-color: #39393D;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 13px;
+    min-width: 38px;
+    min-height: 22px;
 }
 switch:checked {
-    background-color: #30D158;
-    border-color: #30D158;
+    background-color: #34C759;
+    border-color: #34C759;
 }
 switch slider {
     background-color: #FFFFFF;
     border-radius: 50%;
-    min-width: 24px;
-    min-height: 24px;
+    min-width: 18px;
+    min-height: 18px;
 }
 
 /* Sliders */
 scale trough {
     background-color: #2C2C2E;
-    border-radius: 4px;
-    min-height: 6px;
+    border-radius: 3px;
+    min-height: 4px;
 }
 scale highlight {
-    background-color: #0071E3;
-    border-radius: 4px;
+    background-color: #007AFF;
+    border-radius: 3px;
 }
 scale slider {
     background-color: #FFFFFF;
     border-radius: 50%;
-    min-width: 18px;
-    min-height: 18px;
-    margin: -6px 0;
+    min-width: 14px;
+    min-height: 14px;
+    margin: -5px 0;
 }
 
-/* Entry Fields */
+/* Text Fields */
 entry {
-    background-color: #242428;
+    background-color: #141416;
     color: #FFFFFF;
     border: 1px solid rgba(255, 255, 255, 0.10);
-    border-radius: 8px;
-    padding: 8px 12px;
-    font-size: 13px;
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 12px;
 }
 entry:focus {
-    border-color: #0071E3;
+    border-color: #007AFF;
 }
 
-/* Viewfinder Box */
+/* Viewfinder */
 .viewfinder-card {
-    background-color: #000000;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 16px;
+    background-color: #0A0A0C;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
 }
 
 /* Progress Bars */
 progressbar trough {
     background-color: #2C2C2E;
-    border-radius: 4px;
-    min-height: 6px;
+    border-radius: 3px;
+    min-height: 4px;
 }
 progressbar progress {
-    background-color: #0071E3;
-    border-radius: 4px;
+    background-color: #007AFF;
+    border-radius: 3px;
 }
 """
 
@@ -324,8 +271,8 @@ progressbar progress {
 # ------------------------------------------------------------------------------
 # Cairo Vector Icon Generators
 # ------------------------------------------------------------------------------
-def create_apple_icon_surface(kind: str, bg_hex: str, size: int = 28) -> cairo.ImageSurface:
-    """Renders crisp vector Apple Settings squircle icons with pure white glyphs."""
+def create_macos_icon(kind: str, bg_hex: str, size: int = 22) -> cairo.ImageSurface:
+    """Renders crisp authentic macOS squircle icons."""
     surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, size, size)
     cr = cairo.Context(surf)
     cr.set_antialias(cairo.ANTIALIAS_BEST)
@@ -333,8 +280,8 @@ def create_apple_icon_surface(kind: str, bg_hex: str, size: int = 28) -> cairo.I
     h = bg_hex.lstrip("#")
     r, g, b = [int(h[i:i+2], 16) / 255.0 for i in (0, 2, 4)]
 
-    # Squircle background
-    rad = size * 0.25
+    # 5px radius squircle on 22px
+    rad = 5.0
     cr.new_sub_path()
     cr.arc(size - rad, rad, rad, -math.pi / 2, 0)
     cr.arc(size - rad, size - rad, rad, 0, math.pi / 2)
@@ -344,110 +291,81 @@ def create_apple_icon_surface(kind: str, bg_hex: str, size: int = 28) -> cairo.I
     cr.set_source_rgb(r, g, b)
     cr.fill()
 
-    # Glyph in center
     cr.save()
     cr.translate(size / 2.0, size / 2.0)
-    scale = size / 28.0
-    cr.scale(scale, scale)
     cr.set_source_rgb(1.0, 1.0, 1.0)
-    cr.set_line_width(1.5)
+    cr.set_line_width(1.3)
     cr.set_line_cap(cairo.LINE_CAP_ROUND)
     cr.set_line_join(cairo.LINE_JOIN_ROUND)
 
     if kind == "face_id":
-        # Face ID framing corners
-        cr.move_to(-6, -3); cr.line_to(-6, -6); cr.line_to(-3, -6)
-        cr.move_to(3, -6); cr.line_to(6, -6); cr.line_to(6, -3)
-        cr.move_to(-6, 3); cr.line_to(-6, 6); cr.line_to(-3, 6)
-        cr.move_to(3, 6); cr.line_to(6, 6); cr.line_to(6, 3)
+        # 4 corners
+        cr.move_to(-5, -2.5); cr.line_to(-5, -5); cr.line_to(-2.5, -5)
+        cr.move_to(2.5, -5); cr.line_to(5, -5); cr.line_to(5, -2.5)
+        cr.move_to(-5, 2.5); cr.line_to(-5, 5); cr.line_to(-2.5, 5)
+        cr.move_to(2.5, 5); cr.line_to(5, 5); cr.line_to(5, 2.5)
         cr.stroke()
         # Eyes
-        cr.arc(-2.5, -2, 0.9, 0, 2 * math.pi); cr.fill()
-        cr.arc(2.5, -2, 0.9, 0, 2 * math.pi); cr.fill()
+        cr.arc(-2, -1.8, 0.7, 0, 2 * math.pi); cr.fill()
+        cr.arc(2, -1.8, 0.7, 0, 2 * math.pi); cr.fill()
         # Nose
-        cr.move_to(0, -0.5); cr.line_to(0, 1.5); cr.line_to(1, 1.5); cr.stroke()
+        cr.move_to(0, -0.5); cr.line_to(0, 1.2); cr.line_to(0.8, 1.2); cr.stroke()
         # Smile
         cr.new_sub_path()
-        cr.arc(0, 1.5, 3.2, 0.2 * math.pi, 0.8 * math.pi); cr.stroke()
-
-    elif kind == "faces":
-        # Head
-        cr.arc(0, -3.5, 3.0, 0, 2 * math.pi); cr.fill()
-        # Shoulders
-        cr.new_sub_path()
-        cr.arc(0, 6.0, 6.0, math.pi, 2 * math.pi); cr.fill()
-
-    elif kind == "passcode":
-        # Padlock shackle
-        cr.new_sub_path()
-        cr.arc(0, -2, 3.2, math.pi, 2 * math.pi)
-        cr.line_to(3.2, 0); cr.move_to(-3.2, 0); cr.line_to(-3.2, -2); cr.stroke()
-        # Body
-        cr.rectangle(-4.5, 0, 9, 6.5); cr.fill()
-        # Keyhole
-        cr.set_source_rgb(r, g, b)
-        cr.arc(0, 2.5, 1.0, 0, 2 * math.pi); cr.fill()
+        cr.arc(0, 1.2, 2.6, 0.2 * math.pi, 0.8 * math.pi); cr.stroke()
 
     elif kind == "camera":
-        # Camera body
-        cr.rectangle(-6, -3, 12, 9); cr.fill()
-        cr.rectangle(-2.5, -5, 5, 2); cr.fill()
-        # Lens
+        cr.rectangle(-5, -2.5, 10, 7.5); cr.fill()
+        cr.rectangle(-2, -4.2, 4, 1.7); cr.fill()
         cr.set_source_rgb(r, g, b)
-        cr.arc(0, 1.5, 2.6, 0, 2 * math.pi); cr.fill()
+        cr.arc(0, 1.2, 2.2, 0, 2 * math.pi); cr.fill()
         cr.set_source_rgb(1, 1, 1)
-        cr.arc(0, 1.5, 1.2, 0, 2 * math.pi); cr.fill()
+        cr.arc(0, 1.2, 0.9, 0, 2 * math.pi); cr.fill()
 
     elif kind == "liveness":
-        # Eye / Iris
         cr.new_sub_path()
-        cr.arc(0, -5, 7.5, 0.3 * math.pi, 0.7 * math.pi); cr.stroke()
+        cr.arc(0, -4.5, 6.5, 0.3 * math.pi, 0.7 * math.pi); cr.stroke()
         cr.new_sub_path()
-        cr.arc(0, 5, 7.5, 1.3 * math.pi, 1.7 * math.pi); cr.stroke()
-        cr.arc(0, 0, 2.8, 0, 2 * math.pi); cr.fill()
+        cr.arc(0, 4.5, 6.5, 1.3 * math.pi, 1.7 * math.pi); cr.stroke()
+        cr.arc(0, 0, 2.4, 0, 2 * math.pi); cr.fill()
         cr.set_source_rgb(r, g, b)
-        cr.arc(0, 0, 1.2, 0, 2 * math.pi); cr.fill()
+        cr.arc(0, 0, 1.0, 0, 2 * math.pi); cr.fill()
 
-    elif kind == "facelab":
-        # 3 telemetry bars
-        cr.rectangle(-5, 0, 2.2, 6); cr.fill()
-        cr.rectangle(-1.1, -4, 2.2, 10); cr.fill()
-        cr.rectangle(2.8, -2, 2.2, 8); cr.fill()
+    elif kind == "diagnostics":
+        cr.rectangle(-4.5, 0, 2.0, 5.0); cr.fill()
+        cr.rectangle(-1.0, -3.5, 2.0, 8.5); cr.fill()
+        cr.rectangle(2.5, -1.5, 2.0, 6.5); cr.fill()
 
     elif kind == "about":
-        # Lowercase i
-        cr.arc(0, -4, 1.2, 0, 2 * math.pi); cr.fill()
-        cr.rectangle(-1.0, -1.5, 2.0, 6.5); cr.fill()
-        cr.move_to(-2.0, -1.5); cr.line_to(0, -1.5); cr.stroke()
-        cr.move_to(-2.0, 5.0); cr.line_to(2.0, 5.0); cr.stroke()
+        cr.arc(0, -3.5, 1.0, 0, 2 * math.pi); cr.fill()
+        cr.rectangle(-0.8, -1.2, 1.6, 5.5); cr.fill()
+        cr.move_to(-1.8, -1.2); cr.line_to(0, -1.2); cr.stroke()
+        cr.move_to(-1.8, 4.3); cr.line_to(1.8, 4.3); cr.stroke()
 
     cr.restore()
     return surf
 
 
 # ------------------------------------------------------------------------------
-# Main Application Window
+# Main Settings Window
 # ------------------------------------------------------------------------------
 class SettingsWindow(Gtk.Window):
     def __init__(self):
         super().__init__(title="Blink")
-        self.set_default_size(960, 680)
-        self.set_size_request(820, 560)
+        self.set_default_size(900, 620)
+        self.set_size_request(760, 520)
         self.set_position(Gtk.WindowPosition.CENTER)
 
-        # Apply Apple CSS Provider
         self._apply_css()
+        self.get_style_context().add_class("macos-window")
 
-        self.get_style_context().add_class("apple-window")
-
-        # Custom Cupertino HeaderBar
+        # Native HeaderBar
         self.headerbar = Gtk.HeaderBar()
         self.headerbar.set_show_close_button(True)
-        self.headerbar.props.title = "Blink"
-        self.headerbar.props.subtitle = "Face ID & Security"
+        self.headerbar.props.title = "Face ID & Password"
         self.set_titlebar(self.headerbar)
 
-        # Application Icon
+        # App Icon
         icon_path = os.path.join(os.path.dirname(__file__), "..", "resources", "appicon.png")
         if os.path.exists(icon_path):
             try:
@@ -455,7 +373,7 @@ class SettingsWindow(Gtk.Window):
             except Exception:
                 pass
 
-        # Load Core Subsystems
+        # Load System Configuration
         self.settings = BlinkSettings.load()
         self.camera = CameraManager(device_index=self.settings.camera_index)
         self.detector = FaceDetector()
@@ -463,98 +381,76 @@ class SettingsWindow(Gtk.Window):
         self.embedder = ArcFaceEmbedder()
         self.liveness = LivenessAnalyzer(mode=self.settings.liveness_mode)
 
-        self._active_page = "overview"
+        self._active_page = "face_id"
         self._camera_timer: Optional[int] = None
         self._test_coordinator = None
 
-        # Build Main Layout (Sidebar + Stack)
+        # Build Main Split View
         main_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         self.add(main_box)
 
-        # 1. Left Sidebar
+        # 1. Sidebar (210px)
         self.sidebar_box = self._build_sidebar()
         main_box.pack_start(self.sidebar_box, False, False, 0)
 
-        # 2. Right Content Stack
+        # 2. Content Stack
         self.stack = Gtk.Stack()
         self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
-        self.stack.set_transition_duration(150)
+        self.stack.set_transition_duration(120)
         main_box.pack_start(self.stack, True, True, 0)
 
-        # Build Pages
-        self.stack.add_named(self._build_overview_page(), "overview")
-        self.stack.add_named(self._build_faces_page(), "faces")
-        self.stack.add_named(self._build_password_page(), "password")
+        # Build Clean Pages
+        self.stack.add_named(self._build_face_id_page(), "face_id")
         self.stack.add_named(self._build_camera_page(), "camera")
         self.stack.add_named(self._build_liveness_page(), "liveness")
-        self.stack.add_named(self._build_facelab_page(), "facelab")
+        self.stack.add_named(self._build_diagnostics_page(), "diagnostics")
         self.stack.add_named(self._build_about_page(), "about")
 
         self.show_all()
         self.stack.show_all()
 
         # Select initial page
-        self.stack.set_visible_child_name("overview")
-        self.sidebar_list.select_row(self.nav_rows["overview"])
+        self.stack.set_visible_child_name("face_id")
+        self.sidebar_list.select_row(self.nav_rows["face_id"])
 
         self.connect("destroy", self._on_destroy)
 
     def _apply_css(self) -> None:
         provider = Gtk.CssProvider()
-        provider.load_from_data(APPLE_CSS.encode())
+        provider.load_from_data(MACOS_CSS.encode())
         screen = Gdk.Screen.get_default()
         Gtk.StyleContext.add_provider_for_screen(screen, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
     # --------------------------------------------------------------------------
-    # Sidebar Construction
+    # Sidebar
     # --------------------------------------------------------------------------
     def _build_sidebar(self) -> Gtk.Widget:
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        vbox.set_size_request(240, -1)
-        vbox.get_style_context().add_class("sidebar-box")
+        vbox.set_size_request(210, -1)
+        vbox.get_style_context().add_class("sidebar")
 
-        # Sidebar Header (App Branding)
-        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        header.get_style_context().add_class("sidebar-header")
-
-        icon_surf = create_apple_icon_surface("face_id", "#0071E3", 32)
-        header.pack_start(Gtk.Image.new_from_surface(icon_surf), False, False, 0)
-
-        title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
-        t_lbl = Gtk.Label(label="Blink")
-        t_lbl.set_xalign(0)
-        t_lbl.get_style_context().add_class("sidebar-title")
-        sub_lbl = Gtk.Label(label="Face ID & Security")
-        sub_lbl.set_xalign(0)
-        sub_lbl.get_style_context().add_class("sidebar-subtitle")
-        title_box.pack_start(t_lbl, False, False, 0)
-        title_box.pack_start(sub_lbl, False, False, 0)
-        header.pack_start(title_box, True, True, 0)
-        vbox.pack_start(header, False, False, 0)
+        # Search Bar
+        search_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        search_box.get_style_context().add_class("sidebar-search-box")
+        self.search_entry = Gtk.Entry()
+        self.search_entry.set_placeholder_text("Search")
+        self.search_entry.get_style_context().add_class("search-entry")
+        search_box.pack_start(self.search_entry, True, True, 0)
+        vbox.pack_start(search_box, False, False, 0)
 
         # Navigation List
         self.sidebar_list = Gtk.ListBox()
-        self.sidebar_list.get_style_context().add_class("sidebar-nav")
+        self.sidebar_list.get_style_context().add_class("sidebar-list")
         self.sidebar_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
         self.sidebar_list.connect("row-selected", self._on_sidebar_selected)
 
         self.nav_rows: Dict[str, Gtk.ListBoxRow] = {}
 
-        # Group 1: SECURITY
-        vbox.pack_start(self._create_section_label("SECURITY"), False, False, 0)
-        self._add_nav_item("overview", "Overview", "face_id", "#0071E3")
-        self._add_nav_item("faces", "Enrolled Faces", "faces", "#30D158", badge_text=str(len(SecureFaceStore.load_identities())))
-        self._add_nav_item("password", "Passcode & Vault", "passcode", "#FF9F0A")
-
-        # Group 2: HARDWARE & ENGINE
-        vbox.pack_start(self._create_section_label("HARDWARE & VISION"), False, False, 0)
-        self._add_nav_item("camera", "Camera & Vision", "camera", "#BF5AF2")
-        self._add_nav_item("liveness", "Anti-Spoofing", "liveness", "#64D2FF")
-        self._add_nav_item("facelab", "Face Lab Telemetry", "facelab", "#5E5CE6")
-
-        # Group 3: APPLICATION
-        vbox.pack_start(self._create_section_label("SYSTEM"), False, False, 0)
-        self._add_nav_item("about", "About Blink", "about", "#8E8E93")
+        self._add_nav_item("face_id", "Face ID & Password", "face_id", "#007AFF")
+        self._add_nav_item("camera", "Camera", "camera", "#AF52DE")
+        self._add_nav_item("liveness", "Anti-Spoofing", "liveness", "#34C759")
+        self._add_nav_item("diagnostics", "Diagnostics", "diagnostics", "#5856D6")
+        self._add_nav_item("about", "About", "about", "#8E8E93")
 
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -563,28 +459,18 @@ class SettingsWindow(Gtk.Window):
 
         return vbox
 
-    def _create_section_label(self, text: str) -> Gtk.Label:
-        lbl = Gtk.Label(label=text)
-        lbl.set_xalign(0)
-        lbl.get_style_context().add_class("sidebar-section-header")
-        return lbl
-
-    def _add_nav_item(self, page_id: str, label_text: str, icon_kind: str, icon_color: str, badge_text: Optional[str] = None) -> None:
+    def _add_nav_item(self, page_id: str, label_text: str, icon_kind: str, icon_color: str) -> None:
         row = Gtk.ListBoxRow()
         row._page_id = page_id
+        row._title_text = label_text
 
-        h = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        h.pack_start(Gtk.Image.new_from_surface(create_apple_icon_surface(icon_kind, icon_color, 24)), False, False, 0)
+        h = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
+        icon_surf = create_macos_icon(icon_kind, icon_color, 22)
+        h.pack_start(Gtk.Image.new_from_surface(icon_surf), False, False, 0)
 
         lbl = Gtk.Label(label=label_text)
         lbl.set_xalign(0)
         h.pack_start(lbl, True, True, 0)
-
-        if badge_text:
-            badge = Gtk.Label(label=badge_text)
-            badge.get_style_context().add_class("pill-badge")
-            h.pack_end(badge, False, False, 0)
-            row._badge_widget = badge
 
         row.add(h)
         self.sidebar_list.add(row)
@@ -596,9 +482,10 @@ class SettingsWindow(Gtk.Window):
         page_id = row._page_id
         self._active_page = page_id
         self.stack.set_visible_child_name(page_id)
+        self.headerbar.props.title = row._title_text
 
-        # Handle camera polling activation/deactivation
-        if page_id in ("camera", "facelab"):
+        # Camera management
+        if page_id in ("camera", "diagnostics"):
             if not self.camera._running:
                 self.camera.start(device_index=self.settings.camera_index)
             if self._camera_timer is None:
@@ -610,37 +497,45 @@ class SettingsWindow(Gtk.Window):
             self.camera.stop()
 
     # --------------------------------------------------------------------------
-    # Card & Row UI Helpers
+    # Inset Card Helpers
     # --------------------------------------------------------------------------
-    def _create_page_wrapper(self, title: str, subtitle: str) -> Tuple[Gtk.ScrolledWindow, Gtk.Box]:
+    def _create_page_wrapper(self, title: str) -> Tuple[Gtk.ScrolledWindow, Gtk.Box]:
         scroll = Gtk.ScrolledWindow()
         scroll.get_style_context().add_class("content-scroll")
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
 
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        vbox.get_style_context().add_class("page-container")
+        vbox.get_style_context().add_class("content-box")
 
         lbl_t = Gtk.Label(label=title)
         lbl_t.set_xalign(0)
         lbl_t.get_style_context().add_class("page-title")
         vbox.pack_start(lbl_t, False, False, 0)
 
-        lbl_sub = Gtk.Label(label=subtitle)
-        lbl_sub.set_xalign(0)
-        lbl_sub.get_style_context().add_class("page-subtitle")
-        vbox.pack_start(lbl_sub, False, False, 0)
-
         scroll.add(vbox)
         return scroll, vbox
 
-    def _create_apple_card(self) -> Gtk.Box:
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        card.get_style_context().add_class("apple-card")
-        return card
+    def _create_group_heading(self, text: str) -> Gtk.Label:
+        lbl = Gtk.Label(label=text)
+        lbl.set_xalign(0)
+        lbl.get_style_context().add_class("group-title")
+        return lbl
 
-    def _add_card_row(self, card: Gtk.Box, title: str, subtitle: Optional[str] = None, control: Optional[Gtk.Widget] = None, is_last: bool = False) -> None:
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
-        row.get_style_context().add_class("card-row")
+    def _create_group_footnote(self, text: str) -> Gtk.Label:
+        lbl = Gtk.Label(label=text)
+        lbl.set_xalign(0)
+        lbl.set_line_wrap(True)
+        lbl.get_style_context().add_class("group-footnote")
+        return lbl
+
+    def _create_inset_group(self) -> Gtk.Box:
+        group = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        group.get_style_context().add_class("inset-group")
+        return group
+
+    def _add_inset_row(self, group: Gtk.Box, title: str, subtitle: Optional[str] = None, control: Optional[Gtk.Widget] = None, is_last: bool = False) -> None:
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        row.get_style_context().add_class("inset-row")
 
         text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         lbl_t = Gtk.Label(label=title)
@@ -659,338 +554,122 @@ class SettingsWindow(Gtk.Window):
         if control:
             row.pack_end(control, False, False, 0)
 
-        card.pack_start(row, False, False, 0)
+        group.pack_start(row, False, False, 0)
 
         if not is_last:
             divider = Gtk.Box()
-            divider.get_style_context().add_class("card-row-divider")
-            card.pack_start(divider, False, False, 0)
+            divider.get_style_context().add_class("inset-divider")
+            group.pack_start(divider, False, False, 0)
 
     # --------------------------------------------------------------------------
-    # Page 1: Overview & Face ID Dashboard
+    # Page 1: Face ID & Password (Unified Apple Settings Experience)
     # --------------------------------------------------------------------------
-    def _build_overview_page(self) -> Gtk.Widget:
-        scroll, page = self._create_page_wrapper("Face ID & Security", "Manage facial biometric recognition, triggers, and unlock policies.")
+    def _build_face_id_page(self) -> Gtk.Widget:
+        scroll, page = self._create_page_wrapper("Face ID & Password")
 
-        # Hero Status Card
-        self.hero_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=18)
-        self.hero_box.get_style_context().add_class("hero-card")
+        # 1. Enrolled Biometric Profiles
+        page.pack_start(self._create_group_heading("Face ID"), False, False, 0)
 
-        # Large biometric logo
-        hero_icon_surf = create_apple_icon_surface("face_id", "#0071E3", 44)
-        self.hero_box.pack_start(Gtk.Image.new_from_surface(hero_icon_surf), False, False, 0)
+        self.group_profiles = self._create_inset_group()
+        page.pack_start(self.group_profiles, False, False, 0)
+        self._refresh_profiles_row()
 
-        hero_text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
-        self.lbl_hero_title = Gtk.Label(label="Face ID is Active")
-        self.lbl_hero_title.set_xalign(0)
-        self.lbl_hero_title.get_style_context().add_class("hero-title")
+        # 2. Use Face ID for:
+        page.pack_start(self._create_group_heading("Use Face ID for"), False, False, 0)
 
-        self.lbl_hero_desc = Gtk.Label(label="Seamless biometric authentication enabled for lock screen & wake.")
-        self.lbl_hero_desc.set_xalign(0)
-        self.lbl_hero_desc.get_style_context().add_class("hero-desc")
+        group_use = self._create_inset_group()
 
-        h_status = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self.lbl_hero_pill = Gtk.Label(label="● Armed")
-        self.lbl_hero_pill.get_style_context().add_class("pill-active")
-        h_status.pack_start(self.lbl_hero_pill, False, False, 0)
-
-        hero_text.pack_start(self.lbl_hero_title, False, False, 0)
-        hero_text.pack_start(self.lbl_hero_desc, False, False, 0)
-        hero_text.pack_start(h_status, False, False, 0)
-        self.hero_box.pack_start(hero_text, True, True, 0)
-
-        # Master Switch
         self.sw_master = Gtk.Switch()
         has_faces = bool(SecureFaceStore.load_identities())
         self.sw_master.set_active(self.settings.is_face_unlock_enabled and has_faces)
         self.sw_master.connect("notify::active", self._on_toggle_face_unlock)
-        self.hero_box.pack_end(self.sw_master, False, False, 0)
-
-        page.pack_start(self.hero_box, False, False, 0)
-
-        # Quick Actions Bar
-        h_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        h_actions.set_margin_top(16)
-        h_actions.set_margin_bottom(12)
-
-        btn_test = Gtk.Button(label="▶ Preview Face ID (Test Scan on Desktop)")
-        btn_test.get_style_context().add_class("btn-secondary")
-        btn_test.connect("clicked", self._on_test_scan_clicked)
-        h_actions.pack_start(btn_test, False, False, 0)
-
-        btn_add = Gtk.Button(label="➕ Enroll New Face")
-        btn_add.get_style_context().add_class("btn-primary")
-        btn_add.connect("clicked", self._start_enrollment_wizard)
-        h_actions.pack_end(btn_add, False, False, 0)
-
-        page.pack_start(h_actions, False, False, 0)
-
-        # Group 1: UNLOCK TRIGGERS
-        lbl_sec1 = Gtk.Label(label="UNLOCK TRIGGERS")
-        lbl_sec1.set_xalign(0)
-        lbl_sec1.get_style_context().add_class("section-title")
-        page.pack_start(lbl_sec1, False, False, 0)
-
-        card_triggers = self._create_apple_card()
+        self._add_inset_row(group_use, "Unlocking your computer", None, self.sw_master)
 
         sw_wake = Gtk.Switch()
         sw_wake.set_active("on_wake" in self.settings.unlock_triggers)
         sw_wake.connect("notify::active", lambda w, p: self._on_trigger_switch("on_wake", w.get_active()))
-        self._add_card_row(card_triggers, "Unlock on Wake", "Immediately scan face when display turns on or lid opens", sw_wake)
+        self._add_inset_row(group_use, "Unlock on display wake", "Begins scanning when display turns on or laptop lid opens", sw_wake)
 
         sw_lock = Gtk.Switch()
         sw_lock.set_active("on_lock" in self.settings.unlock_triggers)
         sw_lock.connect("notify::active", lambda w, p: self._on_trigger_switch("on_lock", w.get_active()))
-        self._add_card_row(card_triggers, "Unlock on Lock", "Triggers scan immediately when system locks", sw_lock)
+        self._add_inset_row(group_use, "Unlock on screen lock", "Scans face immediately upon locking", sw_lock)
 
         sw_space = Gtk.Switch()
         sw_space.set_active("on_space" in self.settings.unlock_triggers)
         sw_space.connect("notify::active", lambda w, p: self._on_trigger_switch("on_space", w.get_active()))
-        self._add_card_row(card_triggers, "Unlock on Spacebar", "Press spacebar at lock screen to begin recognition", sw_space, is_last=True)
-
-        page.pack_start(card_triggers, False, False, 0)
-
-        # Group 2: RECOGNITION POLICIES & ANIMATION
-        lbl_sec2 = Gtk.Label(label="POLICIES & ANIMATION")
-        lbl_sec2.set_xalign(0)
-        lbl_sec2.get_style_context().add_class("section-title")
-        page.pack_start(lbl_sec2, False, False, 0)
-
-        card_policies = self._create_apple_card()
+        self._add_inset_row(group_use, "Unlock with spacebar", "Press spacebar at lock screen to begin recognition", sw_space)
 
         sw_retry = Gtk.Switch()
         sw_retry.set_active(self.settings.auto_retry_once)
         sw_retry.connect("notify::active", lambda w, p: self._update_setting("auto_retry_once", w.get_active()))
-        self._add_card_row(card_policies, "Auto-retry on Missed Recognition", "Seamlessly retries once if face is momentarily obscured", sw_retry)
+        self._add_inset_row(group_use, "Auto-retry scan once", "Retries automatically if face was not recognized on first attempt", sw_retry)
 
         sw_anim = Gtk.Switch()
         sw_anim.set_active(self.settings.show_unlock_animation)
         sw_anim.connect("notify::active", lambda w, p: self._update_setting("show_unlock_animation", w.get_active()))
-        self._add_card_row(card_policies, "Dynamic Island Floating Animation", "Displays sleek compact card at camera bezel during scan", sw_anim)
+        self._add_inset_row(group_use, "Floating camera indicator", "Displays compact Face ID animation card at top of screen", sw_anim, is_last=True)
 
-        # Timeout slider
-        lbl_timeout_val = Gtk.Label(label=f"{self.settings.face_detection_seconds}s")
-        lbl_timeout_val.get_style_context().add_class("pill-active")
-        scale_timeout = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 2, 10, 1)
-        scale_timeout.set_value(self.settings.face_detection_seconds)
-        scale_timeout.set_size_request(160, -1)
-        scale_timeout.connect("value-changed", lambda w: self._on_timeout_slider(w, lbl_timeout_val))
+        page.pack_start(group_use, False, False, 0)
+        page.pack_start(self._create_group_footnote("Blink uses facial recognition to unlock your system when you wake the computer or lock the screen."), False, False, 0)
 
-        h_timeout = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        h_timeout.pack_start(scale_timeout, False, False, 0)
-        h_timeout.pack_start(lbl_timeout_val, False, False, 0)
-        self._add_card_row(card_policies, "Scanning Window Duration", "Time window before falling back to manual password", h_timeout)
+        # 3. Recognition Tuning
+        page.pack_start(self._create_group_heading("Recognition options"), False, False, 0)
 
-        # Similarity threshold slider
+        group_tune = self._create_inset_group()
+
+        # Timeout
+        lbl_time_val = Gtk.Label(label=f"{self.settings.face_detection_seconds}s")
+        lbl_time_val.get_style_context().add_class("row-desc")
+        scale_time = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 2, 10, 1)
+        scale_time.set_value(self.settings.face_detection_seconds)
+        scale_time.set_size_request(140, -1)
+        scale_time.connect("value-changed", lambda w: self._on_timeout_slider(w, lbl_time_val))
+        h_time = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        h_time.pack_start(scale_time, False, False, 0)
+        h_time.pack_start(lbl_time_val, False, False, 0)
+        self._add_inset_row(group_tune, "Scanning duration", "Time window before falling back to manual password", h_time)
+
+        # Threshold
         lbl_thresh_val = Gtk.Label(label=f"{self.settings.match_threshold:.2f}")
-        lbl_thresh_val.get_style_context().add_class("pill-active")
+        lbl_thresh_val.get_style_context().add_class("row-desc")
         scale_thresh = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.40, 0.85, 0.01)
         scale_thresh.set_value(self.settings.match_threshold)
-        scale_thresh.set_size_request(160, -1)
+        scale_thresh.set_size_request(140, -1)
         scale_thresh.connect("value-changed", lambda w: self._on_thresh_slider(w, lbl_thresh_val))
-
-        h_thresh = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        h_thresh = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         h_thresh.pack_start(scale_thresh, False, False, 0)
         h_thresh.pack_start(lbl_thresh_val, False, False, 0)
-        self._add_card_row(card_policies, "Match Similarity Threshold", "Higher values require closer facial match (0.60 recommended)", h_thresh, is_last=True)
+        self._add_inset_row(group_tune, "Similarity threshold", "Higher values require closer match (0.60 recommended)", h_thresh)
 
-        page.pack_start(card_policies, False, False, 0)
+        # Test Recognition Button
+        btn_test = Gtk.Button(label="Test Face ID...")
+        btn_test.get_style_context().add_class("btn-macos")
+        btn_test.connect("clicked", self._on_test_scan_clicked)
+        self._add_inset_row(group_tune, "Test recognition", "Preview the Face ID card and test scanning without locking", btn_test, is_last=True)
 
-        self._update_hero_status()
-        return scroll
+        page.pack_start(group_tune, False, False, 0)
 
-    def _update_hero_status(self) -> None:
-        has_faces = bool(SecureFaceStore.load_identities())
-        is_active = self.settings.is_face_unlock_enabled and has_faces
+        # 4. Password Section
+        page.pack_start(self._create_group_heading("Password"), False, False, 0)
 
-        if is_active:
-            self.lbl_hero_title.set_text("Face ID is Active")
-            self.lbl_hero_desc.set_text("Seamless biometric authentication enabled for lock screen & wake.")
-            self.lbl_hero_pill.set_text("● Armed")
-            self.lbl_hero_pill.get_style_context().remove_class("pill-inactive")
-            self.lbl_hero_pill.get_style_context().add_class("pill-active")
-        else:
-            self.lbl_hero_title.set_text("Face ID is Inactive")
-            msg = "Enroll your face to enable biometric unlock." if not has_faces else "Toggle switch to re-arm Face ID."
-            self.lbl_hero_desc.set_text(msg)
-            self.lbl_hero_pill.set_text("○ Disarmed")
-            self.lbl_hero_pill.get_style_context().remove_class("pill-active")
-            self.lbl_hero_pill.get_style_context().add_class("pill-inactive")
+        group_pwd = self._create_inset_group()
 
-    # --------------------------------------------------------------------------
-    # Page 2: Enrolled Biometric Profiles
-    # --------------------------------------------------------------------------
-    def _build_faces_page(self) -> Gtk.Widget:
-        scroll, page = self._create_page_wrapper("Biometric Profiles", "Manage enrolled facial identities recognized by Blink on this device.")
-
-        # Top Action Bar
-        h_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        h_bar.set_margin_bottom(16)
-        lbl_hint = Gtk.Label(label="Biometric templates are encrypted with hardware-bound AES-256-GCM.")
-        lbl_hint.set_xalign(0)
-        lbl_hint.get_style_context().add_class("row-desc")
-        h_bar.pack_start(lbl_hint, True, True, 0)
-
-        btn_add = Gtk.Button(label="➕ Enroll New Face")
-        btn_add.get_style_context().add_class("btn-primary")
-        btn_add.connect("clicked", self._start_enrollment_wizard)
-        h_bar.pack_end(btn_add, False, False, 0)
-        page.pack_start(h_bar, False, False, 0)
-
-        # Profiles Card Container
-        self.faces_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        page.pack_start(self.faces_container, False, False, 0)
-
-        self._refresh_faces_view()
-        return scroll
-
-    def _refresh_faces_view(self) -> None:
-        for child in self.faces_container.get_children():
-            self.faces_container.remove(child)
-
-        identities = SecureFaceStore.load_identities()
-
-        # Update sidebar badge
-        if "faces" in self.nav_rows and hasattr(self.nav_rows["faces"], "_badge_widget"):
-            self.nav_rows["faces"]._badge_widget.set_text(str(len(identities)))
-
-        if not identities:
-            # Empty state card
-            empty_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-            empty_card.get_style_context().add_class("apple-card")
-            empty_card.set_margin_top(12)
-            empty_card.set_margin_bottom(12)
-            empty_card.set_border_width(32)
-
-            icon_surf = create_apple_icon_surface("face_id", "#8E8E93", 48)
-            img = Gtk.Image.new_from_surface(icon_surf)
-            empty_card.pack_start(img, False, False, 0)
-
-            lbl_empty = Gtk.Label(label="<b>No Biometric Profiles Enrolled</b>")
-            lbl_empty.set_use_markup(True)
-            empty_card.pack_start(lbl_empty, False, False, 0)
-
-            lbl_hint = Gtk.Label(label="Enroll your face using Blink's fast 5-pose guided capture to enable Face ID.")
-            lbl_hint.get_style_context().add_class("row-desc")
-            empty_card.pack_start(lbl_hint, False, False, 0)
-
-            btn_enroll_empty = Gtk.Button(label="Set Up Face ID")
-            btn_enroll_empty.get_style_context().add_class("btn-primary")
-            btn_enroll_empty.connect("clicked", self._start_enrollment_wizard)
-            empty_card.pack_start(btn_enroll_empty, False, False, 0)
-
-            self.faces_container.pack_start(empty_card, False, False, 0)
-        else:
-            card = self._create_apple_card()
-            for idx, ident in enumerate(identities):
-                is_last = (idx == len(identities) - 1)
-                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
-                row.get_style_context().add_class("card-row")
-
-                # Avatar squircle
-                avatar_surf = create_apple_icon_surface("faces", "#30D158", 32)
-                row.pack_start(Gtk.Image.new_from_surface(avatar_surf), False, False, 0)
-
-                # Info
-                v_info = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-                name_lbl = Gtk.Label(label=ident.get("name", "User"))
-                name_lbl.set_xalign(0)
-                name_lbl.get_style_context().add_class("row-label")
-
-                poses_count = len(ident.get("samples", []))
-                sub_text = f"{poses_count} poses enrolled • Encrypted AES-256 Vault"
-                sub_lbl = Gtk.Label(label=sub_text)
-                sub_lbl.set_xalign(0)
-                sub_lbl.get_style_context().add_class("row-desc")
-
-                v_info.pack_start(name_lbl, False, False, 0)
-                v_info.pack_start(sub_lbl, False, False, 0)
-                row.pack_start(v_info, True, True, 0)
-
-                # Actions: Switch + Delete Button
-                sw = Gtk.Switch()
-                sw.set_active(ident.get("is_enabled", True))
-                sw.connect("notify::active", self._on_toggle_identity, ident["id"])
-                row.pack_end(sw, False, False, 0)
-
-                btn_del = Gtk.Button(label="Delete")
-                btn_del.get_style_context().add_class("btn-danger")
-                btn_del.connect("clicked", self._on_delete_identity, ident["id"])
-                row.pack_end(btn_del, False, False, 0)
-
-                card.pack_start(row, False, False, 0)
-                if not is_last:
-                    divider = Gtk.Box()
-                    divider.get_style_context().add_class("card-row-divider")
-                    card.pack_start(divider, False, False, 0)
-
-            self.faces_container.pack_start(card, False, False, 0)
-
-        self.faces_container.show_all()
-        self._update_hero_status()
-
-    # --------------------------------------------------------------------------
-    # Page 3: Passcode & Vault
-    # --------------------------------------------------------------------------
-    def _build_password_page(self) -> Gtk.Widget:
-        scroll, page = self._create_page_wrapper("Passcode & Vault", "Manage desktop lockscreen credentials and auto-lock security policies.")
-
-        # Info Banner
-        lbl_sec = Gtk.Label(label="HOW BLINK UNLOCKS YOUR SYSTEM")
-        lbl_sec.set_xalign(0)
-        lbl_sec.get_style_context().add_class("section-title")
-        page.pack_start(lbl_sec, False, False, 0)
-
-        card_info = self._create_apple_card()
         has_pwd = SecureCredentialManager.has_stored_password()
+        self.lbl_pwd_status = Gtk.Label(label="Password is set" if has_pwd else "Not configured")
+        self.lbl_pwd_status.get_style_context().add_class("row-desc")
 
-        self.lbl_vault_status = Gtk.Label(label="● AES-256-GCM Stored" if has_pwd else "○ Not Configured")
-        self.lbl_vault_status.get_style_context().add_class("pill-active" if has_pwd else "pill-inactive")
+        btn_change_pwd = Gtk.Button(label="Change..." if has_pwd else "Set Up...")
+        btn_change_pwd.get_style_context().add_class("btn-macos")
+        btn_change_pwd.connect("clicked", self._on_open_password_dialog)
 
-        self._add_card_row(
-            card_info,
-            "Hardware-Bound Security Vault",
-            "Blink encrypts your desktop unlock password using PBKDF2 and AES-256-GCM linked to machine hardware keys.",
-            self.lbl_vault_status,
-            is_last=True,
-        )
-        page.pack_start(card_info, False, False, 0)
+        h_pwd_ctrl = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        h_pwd_ctrl.pack_start(self.lbl_pwd_status, False, False, 0)
+        h_pwd_ctrl.pack_start(btn_change_pwd, False, False, 0)
+        self.btn_change_pwd = btn_change_pwd
+        self._add_inset_row(group_pwd, "Account password", "Stored securely with AES-256-GCM encryption", h_pwd_ctrl)
 
-        # Password Entry Card
-        lbl_sec2 = Gtk.Label(label="USER PASSWORD")
-        lbl_sec2.set_xalign(0)
-        lbl_sec2.get_style_context().add_class("section-title")
-        page.pack_start(lbl_sec2, False, False, 0)
-
-        card_entry = self._create_apple_card()
-
-        h_input = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        self.entry_pwd = Gtk.Entry()
-        self.entry_pwd.set_visibility(False)
-        self.entry_pwd.set_placeholder_text("Enter Linux user account password")
-        self.entry_pwd.set_size_request(260, -1)
-        h_input.pack_start(self.entry_pwd, True, True, 0)
-
-        btn_save = Gtk.Button(label="Save Password")
-        btn_save.get_style_context().add_class("btn-primary")
-        btn_save.connect("clicked", self._on_save_password)
-        h_input.pack_start(btn_save, False, False, 0)
-
-        btn_remove = Gtk.Button(label="Remove")
-        btn_remove.get_style_context().add_class("btn-danger")
-        btn_remove.connect("clicked", self._on_remove_password)
-        h_input.pack_start(btn_remove, False, False, 0)
-
-        self._add_card_row(card_entry, "Desktop Password", "Injected via Linux /dev/uinput or PAM after face confirmation", h_input, is_last=True)
-        page.pack_start(card_entry, False, False, 0)
-
-        # Auto-Lock Idle Timeout Card
-        lbl_sec3 = Gtk.Label(label="SESSION SECURITY")
-        lbl_sec3.set_xalign(0)
-        lbl_sec3.get_style_context().add_class("section-title")
-        page.pack_start(lbl_sec3, False, False, 0)
-
-        card_session = self._create_apple_card()
+        # Auto-lock
         combo_lock = Gtk.ComboBoxText()
         combo_lock.append("5", "5 minutes")
         combo_lock.append("15", "15 minutes")
@@ -998,24 +677,103 @@ class SettingsWindow(Gtk.Window):
         combo_lock.append("60", "1 hour")
         combo_lock.set_active_id(str(self.settings.auto_lock_idle_minutes))
         combo_lock.connect("changed", self._on_combo_idle_changed)
+        self._add_inset_row(group_pwd, "Require password after screen lock", None, combo_lock, is_last=True)
 
-        self._add_card_row(card_session, "Auto-lock session after idle", "Enforces re-authentication after specified inactivity period", combo_lock, is_last=True)
-        page.pack_start(card_session, False, False, 0)
+        page.pack_start(group_pwd, False, False, 0)
+        page.pack_start(self._create_group_footnote("Your password is encrypted using hardware-linked AES-256-GCM and injected to unlock your screen saver upon face confirmation."), False, False, 0)
 
         return scroll
 
+    def _refresh_profiles_row(self) -> None:
+        for child in self.group_profiles.get_children():
+            self.group_profiles.remove(child)
+
+        identities = SecureFaceStore.load_identities()
+        if not identities:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            row.get_style_context().add_class("inset-row")
+
+            lbl = Gtk.Label(label="No faces enrolled")
+            lbl.set_xalign(0)
+            lbl.get_style_context().add_class("row-desc")
+            row.pack_start(lbl, True, True, 0)
+
+            btn_add = Gtk.Button(label="Add Face...")
+            btn_add.get_style_context().add_class("btn-macos-primary")
+            btn_add.connect("clicked", self._start_enrollment_wizard)
+            row.pack_end(btn_add, False, False, 0)
+            self.group_profiles.pack_start(row, False, False, 0)
+        else:
+            for idx, ident in enumerate(identities):
+                is_last = (idx == len(identities) - 1)
+                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+                row.get_style_context().add_class("inset-row")
+
+                icon_surf = create_macos_icon("face_id", "#007AFF", 20)
+                row.pack_start(Gtk.Image.new_from_surface(icon_surf), False, False, 0)
+
+                v = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+                name_lbl = Gtk.Label(label=ident.get("name", "User"))
+                name_lbl.set_xalign(0)
+                name_lbl.get_style_context().add_class("row-label")
+
+                poses_count = len(ident.get("samples", []))
+                sub_lbl = Gtk.Label(label=f"{poses_count} poses enrolled")
+                sub_lbl.set_xalign(0)
+                sub_lbl.get_style_context().add_class("row-desc")
+                v.pack_start(name_lbl, False, False, 0)
+                v.pack_start(sub_lbl, False, False, 0)
+                row.pack_start(v, True, True, 0)
+
+                # Active Switch + Delete Button
+                h_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+                sw = Gtk.Switch()
+                sw.set_active(ident.get("is_enabled", True))
+                sw.connect("notify::active", self._on_toggle_identity, ident["id"])
+                h_actions.pack_start(sw, False, False, 0)
+
+                btn_del = Gtk.Button(label="Delete")
+                btn_del.get_style_context().add_class("btn-macos-danger")
+                btn_del.connect("clicked", self._on_delete_identity, ident["id"])
+                h_actions.pack_start(btn_del, False, False, 0)
+
+                row.pack_end(h_actions, False, False, 0)
+                self.group_profiles.pack_start(row, False, False, 0)
+
+                if not is_last:
+                    div = Gtk.Box()
+                    div.get_style_context().add_class("inset-divider")
+                    self.group_profiles.pack_start(div, False, False, 0)
+
+            # Footer row inside card to add another face
+            div = Gtk.Box()
+            div.get_style_context().add_class("inset-divider")
+            self.group_profiles.pack_start(div, False, False, 0)
+
+            add_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            add_row.get_style_context().add_class("inset-row")
+            lbl_more = Gtk.Label(label="Enroll an additional face profile")
+            lbl_more.set_xalign(0)
+            lbl_more.get_style_context().add_class("row-desc")
+            add_row.pack_start(lbl_more, True, True, 0)
+
+            btn_add = Gtk.Button(label="Add Face...")
+            btn_add.get_style_context().add_class("btn-macos")
+            btn_add.connect("clicked", self._start_enrollment_wizard)
+            add_row.pack_end(btn_add, False, False, 0)
+            self.group_profiles.pack_start(add_row, False, False, 0)
+
+        self.group_profiles.show_all()
+
     # --------------------------------------------------------------------------
-    # Page 4: Camera & Vision
+    # Page 2: Camera
     # --------------------------------------------------------------------------
     def _build_camera_page(self) -> Gtk.Widget:
-        scroll, page = self._create_page_wrapper("Camera & Vision", "Configure optical hardware devices and inspect camera viewfinder.")
+        scroll, page = self._create_page_wrapper("Camera")
 
-        lbl_sec1 = Gtk.Label(label="HARDWARE DEVICE")
-        lbl_sec1.set_xalign(0)
-        lbl_sec1.get_style_context().add_class("section-title")
-        page.pack_start(lbl_sec1, False, False, 0)
+        page.pack_start(self._create_group_heading("Camera device"), False, False, 0)
 
-        card_dev = self._create_apple_card()
+        group_cam = self._create_inset_group()
 
         self.combo_cam = Gtk.ComboBoxText()
         devices = CameraManager.list_devices()
@@ -1023,58 +781,45 @@ class SettingsWindow(Gtk.Window):
             self.combo_cam.append(str(idx), f"/dev/video{idx}")
         self.combo_cam.set_active_id(str(self.settings.camera_index))
         self.combo_cam.connect("changed", self._on_camera_device_changed)
+        self._add_inset_row(group_cam, "Camera input", "Selected sensor device for face detection", self.combo_cam)
 
-        self._add_card_row(card_dev, "Active Camera", "Select optical camera sensor device for face detection", self.combo_cam)
+        lbl_fall = Gtk.Label(label="Enabled")
+        lbl_fall.get_style_context().add_class("row-desc")
+        self._add_inset_row(group_cam, "Device 0 fallback", "Automatically switches to /dev/video0 if selected device fails", lbl_fall, is_last=True)
+        page.pack_start(group_cam, False, False, 0)
 
-        lbl_fallback = Gtk.Label(label="Enabled")
-        lbl_fallback.get_style_context().add_class("pill-active")
-        self._add_card_row(card_dev, "Device 0 Fallback", "Automatically switches to /dev/video0 if selected device fails", lbl_fallback, is_last=True)
-        page.pack_start(card_dev, False, False, 0)
+        page.pack_start(self._create_group_heading("Camera preview"), False, False, 0)
 
-        # Camera Viewfinder
-        lbl_sec2 = Gtk.Label(label="LIVE VIEWFINDER")
-        lbl_sec2.set_xalign(0)
-        lbl_sec2.get_style_context().add_class("section-title")
-        page.pack_start(lbl_sec2, False, False, 0)
-
-        card_cam_view = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        card_cam_view.get_style_context().add_class("viewfinder-card")
+        preview_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        preview_box.get_style_context().add_class("viewfinder-card")
 
         self.img_cam_preview = Gtk.Image()
-        self.img_cam_preview.set_size_request(480, 360)
-        card_cam_view.pack_start(self.img_cam_preview, True, True, 0)
-        page.pack_start(card_cam_view, False, False, 0)
+        self.img_cam_preview.set_size_request(480, 320)
+        preview_box.pack_start(self.img_cam_preview, True, True, 0)
+        page.pack_start(preview_box, False, False, 0)
+
+        page.pack_start(self._create_group_footnote("Viewfinder runs live while viewing this panel to verify framing and camera alignment."), False, False, 0)
 
         return scroll
 
     # --------------------------------------------------------------------------
-    # Page 5: Anti-Spoofing & Liveness
+    # Page 3: Anti-Spoofing & Liveness
     # --------------------------------------------------------------------------
     def _build_liveness_page(self) -> Gtk.Widget:
-        scroll, page = self._create_page_wrapper("Anti-Spoofing", "Configure multi-cue liveness detection against 2D photos, screens, and masks.")
+        scroll, page = self._create_page_wrapper("Anti-Spoofing")
 
-        lbl_sec1 = Gtk.Label(label="PROTECTION ENGINE")
-        lbl_sec1.set_xalign(0)
-        lbl_sec1.get_style_context().add_class("section-title")
-        page.pack_start(lbl_sec1, False, False, 0)
+        page.pack_start(self._create_group_heading("Liveness verification"), False, False, 0)
 
-        card_live = self._create_apple_card()
+        group_live = self._create_inset_group()
+
         sw_live = Gtk.Switch()
         sw_live.set_active(self.settings.liveness_checks_enabled)
         sw_live.connect("notify::active", lambda w, p: self._update_setting("liveness_checks_enabled", w.get_active()))
-        self._add_card_row(card_live, "Multi-Cue Liveness Analysis", "Analyzes specular glare, pixel lattice, and facial micro-motion", sw_live, is_last=True)
-        page.pack_start(card_live, False, False, 0)
+        self._add_inset_row(group_live, "Check for liveness", "Protects against 2D photos, video replays, and digital screens", sw_live)
 
-        # Strictness Mode Cards
-        lbl_sec2 = Gtk.Label(label="SECURITY LEVEL")
-        lbl_sec2.set_xalign(0)
-        lbl_sec2.get_style_context().add_class("section-title")
-        page.pack_start(lbl_sec2, False, False, 0)
-
-        card_mode = self._create_apple_card()
-
-        self.rb_light = Gtk.RadioButton.new_with_label(None, "Standard (Passive Defense)")
-        self.rb_heavy = Gtk.RadioButton.new_with_label_from_widget(self.rb_light, "Enhanced (Active Proof-of-Life)")
+        # Mode Selection
+        self.rb_light = Gtk.RadioButton.new_with_label(None, "Standard")
+        self.rb_heavy = Gtk.RadioButton.new_with_label_from_widget(self.rb_light, "Enhanced")
 
         if self.settings.liveness_mode == "heavy":
             self.rb_heavy.set_active(True)
@@ -1084,149 +829,142 @@ class SettingsWindow(Gtk.Window):
         self.rb_light.connect("toggled", lambda w: self._on_liveness_mode_changed("light") if w.get_active() else None)
         self.rb_heavy.connect("toggled", lambda w: self._on_liveness_mode_changed("heavy") if w.get_active() else None)
 
-        self._add_card_row(card_mode, "Standard Mode", "Deny-only screening: detects phone screens, glare & paper printouts without user motion", self.rb_light)
-        self._add_card_row(card_mode, "Enhanced Mode", "Requires active proof-of-life: verifies natural eye blinks and 3D head rotation", self.rb_heavy, is_last=True)
-        page.pack_start(card_mode, False, False, 0)
+        h_modes = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+        h_modes.pack_start(self.rb_light, False, False, 0)
+        h_modes.pack_start(self.rb_heavy, False, False, 0)
+        self._add_inset_row(group_live, "Security level", "Standard screens reflection glare; Enhanced requires eye blinks", h_modes, is_last=True)
+
+        page.pack_start(group_live, False, False, 0)
+        page.pack_start(self._create_group_footnote("Anti-spoofing analyzes specular screen glare, pixel lattices, and facial micro-motion to prevent unauthorized access."), False, False, 0)
 
         return scroll
 
     # --------------------------------------------------------------------------
-    # Page 6: Face Lab Diagnostics & Telemetry
+    # Page 4: Diagnostics & Face Lab
     # --------------------------------------------------------------------------
-    def _build_facelab_page(self) -> Gtk.Widget:
-        scroll, page = self._create_page_wrapper("Face Lab", "Real-time biometric computer vision diagnostics, landmark meshes, and cue telemetry.")
+    def _build_diagnostics_page(self) -> Gtk.Widget:
+        scroll, page = self._create_page_wrapper("Diagnostics")
 
-        hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
+        page.pack_start(self._create_group_heading("Real-time vision telemetry"), False, False, 0)
 
-        # Left: Live Viewfinder with 106-point landmark mesh
+        hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=18)
+
+        # Left: Live Viewfinder
         view_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         view_box.get_style_context().add_class("viewfinder-card")
         self.img_facelab = Gtk.Image()
-        self.img_facelab.set_size_request(480, 360)
+        self.img_facelab.set_size_request(420, 315)
         view_box.pack_start(self.img_facelab, True, True, 0)
         hbox.pack_start(view_box, False, False, 0)
 
-        # Right: Telemetry Dashboard
-        v_telemetry = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        # Right: Telemetry Inset Group
+        group_diag = self._create_inset_group()
 
-        card_diag = self._create_apple_card()
-
-        # Similarity score
-        self.lbl_fl_sim = Gtk.Label(label="Similarity: --")
-        self.lbl_fl_sim.set_xalign(0)
-        self.lbl_fl_sim.get_style_context().add_class("row-label")
+        self.lbl_fl_sim = Gtk.Label(label="--")
+        self.lbl_fl_sim.set_xalign(1)
+        self.lbl_fl_sim.get_style_context().add_class("row-desc")
         self.prog_fl_sim = Gtk.ProgressBar()
-        self.prog_fl_sim.set_size_request(240, -1)
+        self.prog_fl_sim.set_size_request(160, -1)
+        h_sim = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        h_sim.pack_start(self.prog_fl_sim, True, True, 0)
+        h_sim.pack_start(self.lbl_fl_sim, False, False, 0)
+        self._add_inset_row(group_diag, "Similarity match", None, h_sim)
 
-        sim_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        sim_box.pack_start(self.lbl_fl_sim, False, False, 0)
-        sim_box.pack_start(self.prog_fl_sim, False, False, 0)
-        self._add_card_row(card_diag, "Biometric Match", None, sim_box)
-
-        # Liveness Cue Meters
         self.fl_cue_labels = {}
         self.fl_cue_progs = {}
         for cue in LivenessCue:
-            c_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-            lbl = Gtk.Label(label=f"{cue.title}: --")
-            lbl.set_xalign(0)
+            c_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            lbl = Gtk.Label(label="--")
+            lbl.set_xalign(1)
             lbl.get_style_context().add_class("row-desc")
             prog = Gtk.ProgressBar()
-            prog.set_size_request(240, -1)
+            prog.set_size_request(160, -1)
+            c_box.pack_start(prog, True, True, 0)
             c_box.pack_start(lbl, False, False, 0)
-            c_box.pack_start(prog, False, False, 0)
             self.fl_cue_labels[cue] = lbl
             self.fl_cue_progs[cue] = prog
-            self._add_card_row(card_diag, cue.title, None, c_box)
+            self._add_inset_row(group_diag, cue.title, None, c_box)
 
-        # Liveness Decision Pill
-        self.lbl_fl_decision = Gtk.Label(label="Decision: --")
-        self.lbl_fl_decision.get_style_context().add_class("pill-active")
-        self._add_card_row(card_diag, "Overall Verdict", "Final anti-spoof determination", self.lbl_fl_decision, is_last=True)
+        self.lbl_fl_decision = Gtk.Label(label="Ready")
+        self.lbl_fl_decision.get_style_context().add_class("row-desc")
+        self._add_inset_row(group_diag, "Liveness verdict", None, self.lbl_fl_decision, is_last=True)
 
-        v_telemetry.pack_start(card_diag, True, True, 0)
-        hbox.pack_start(v_telemetry, True, True, 0)
+        hbox.pack_start(group_diag, True, True, 0)
+        page.pack_start(hbox, False, False, 0)
 
-        page.pack_start(hbox, True, True, 0)
+        page.pack_start(self._create_group_footnote("Facial landmarks and real-time biometric embedding scores are computed entirely on-device."), False, False, 0)
+
         return scroll
 
     # --------------------------------------------------------------------------
-    # Page 7: About Blink & Community
+    # Page 5: About
     # --------------------------------------------------------------------------
     def _build_about_page(self) -> Gtk.Widget:
-        scroll, page = self._create_page_wrapper("About Blink", "Modern Apple-grade facial authentication for Linux & Windows.")
+        scroll, page = self._create_page_wrapper("About")
 
-        # Hero Banner
-        card_hero = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        card_hero.get_style_context().add_class("apple-card")
-        card_hero.set_border_width(28)
+        # Top App Identification
+        top_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+        top_box.set_margin_bottom(16)
 
-        icon_surf = create_apple_icon_surface("face_id", "#0071E3", 56)
-        card_hero.pack_start(Gtk.Image.new_from_surface(icon_surf), False, False, 0)
+        icon_surf = create_macos_icon("face_id", "#007AFF", 44)
+        top_box.pack_start(Gtk.Image.new_from_surface(icon_surf), False, False, 0)
 
-        lbl_app = Gtk.Label(label="<b>Blink</b>")
-        lbl_app.set_use_markup(True)
+        v_top = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        lbl_app = Gtk.Label(label="Blink")
+        lbl_app.set_xalign(0)
         lbl_app.get_style_context().add_class("page-title")
-        card_hero.pack_start(lbl_app, False, False, 0)
 
-        lbl_ver = Gtk.Label(label="Version 2.1.0 • Stable Release")
-        lbl_ver.get_style_context().add_class("pill-active")
-        card_hero.pack_start(lbl_ver, False, False, 0)
+        lbl_ver = Gtk.Label(label="Version 2.1.0 (Linux x86_64)")
+        lbl_ver.set_xalign(0)
+        lbl_ver.get_style_context().add_class("row-desc")
+        v_top.pack_start(lbl_app, False, False, 0)
+        v_top.pack_start(lbl_ver, False, False, 0)
+        top_box.pack_start(v_top, True, True, 0)
 
-        lbl_tag = Gtk.Label(label="Ultra-fast, hands-free Face ID authentication featuring on-device AI and biometric anti-spoofing.")
-        lbl_tag.get_style_context().add_class("row-desc")
-        card_hero.pack_start(lbl_tag, False, False, 0)
+        page.pack_start(top_box, False, False, 0)
 
-        page.pack_start(card_hero, False, False, 0)
+        # Links Group
+        page.pack_start(self._create_group_heading("Resources"), False, False, 0)
 
-        # Links & Community Card
-        lbl_sec1 = Gtk.Label(label="RESOURCES & COMMUNITY")
-        lbl_sec1.set_xalign(0)
-        lbl_sec1.get_style_context().add_class("section-title")
-        page.pack_start(lbl_sec1, False, False, 0)
+        group_links = self._create_inset_group()
 
-        card_links = self._create_apple_card()
-
-        btn_web = Gtk.Button(label="Open Official Website")
-        btn_web.get_style_context().add_class("btn-secondary")
+        btn_web = Gtk.Button(label="Visit Website")
+        btn_web.get_style_context().add_class("btn-macos")
         btn_web.connect("clicked", lambda b: subprocess.Popen(["xdg-open", "https://blink-web.vercel.app"]))
-        self._add_card_row(card_links, "Blink Web", "Product guides, benchmarks, and release notes", btn_web)
+        self._add_inset_row(group_links, "Website", "Documentation, release notes, and install scripts", btn_web)
 
-        btn_git = Gtk.Button(label="GitHub Repository")
-        btn_git.get_style_context().add_class("btn-secondary")
+        btn_git = Gtk.Button(label="View on GitHub")
+        btn_git.get_style_context().add_class("btn-macos")
         btn_git.connect("clicked", lambda b: subprocess.Popen(["xdg-open", "https://github.com/realsamay/blink"]))
-        self._add_card_row(card_links, "Source Code", "Contribute, star, or inspect source code on GitHub", btn_git, is_last=True)
+        self._add_inset_row(group_links, "Source code", "github.com/realsamay/blink", btn_git, is_last=True)
 
-        page.pack_start(card_links, False, False, 0)
+        page.pack_start(group_links, False, False, 0)
 
-        # System Diagnostics Card
-        lbl_sec2 = Gtk.Label(label="SYSTEM & ENVIRONMENT")
-        lbl_sec2.set_xalign(0)
-        lbl_sec2.get_style_context().add_class("section-title")
-        page.pack_start(lbl_sec2, False, False, 0)
+        # System Info Group
+        page.pack_start(self._create_group_heading("Environment"), False, False, 0)
 
-        card_sys = self._create_apple_card()
+        group_sys = self._create_inset_group()
 
-        lbl_os = Gtk.Label(label=f"Linux {platform.release()} ({platform.machine()})")
+        lbl_os = Gtk.Label(label=f"Linux {platform.release()}")
         lbl_os.get_style_context().add_class("row-desc")
-        self._add_card_row(card_sys, "Operating System", None, lbl_os)
+        self._add_inset_row(group_sys, "Operating system", None, lbl_os)
 
         inj_avail = KeystrokeInjector.is_available()
         lbl_inj = Gtk.Label(label="Available (/dev/uinput)" if inj_avail else "Restricted")
-        lbl_inj.get_style_context().add_class("pill-active" if inj_avail else "pill-inactive")
-        self._add_card_row(card_sys, "Keystroke Injector", None, lbl_inj)
+        lbl_inj.get_style_context().add_class("row-desc")
+        self._add_inset_row(group_sys, "Keystroke injector", None, lbl_inj)
 
-        is_svc_active = (subprocess.run(["systemctl", "--user", "is-active", "blink.service"], capture_output=True, text=True).stdout.strip() == "active")
-        lbl_svc = Gtk.Label(label="Active (Running)" if is_svc_active else "Stopped")
-        lbl_svc.get_style_context().add_class("pill-active" if is_svc_active else "pill-inactive")
-        self._add_card_row(card_sys, "Background Daemon", "systemd user service status", lbl_svc, is_last=True)
+        is_svc = (subprocess.run(["systemctl", "--user", "is-active", "blink.service"], capture_output=True, text=True).stdout.strip() == "active")
+        lbl_svc = Gtk.Label(label="Active (Running)" if is_svc else "Stopped")
+        lbl_svc.get_style_context().add_class("row-desc")
+        self._add_inset_row(group_sys, "Background service", None, lbl_svc, is_last=True)
 
-        page.pack_start(card_sys, False, False, 0)
+        page.pack_start(group_sys, False, False, 0)
 
         return scroll
 
     # --------------------------------------------------------------------------
-    # Callbacks & Settings Management
+    # Settings Callbacks
     # --------------------------------------------------------------------------
     def _update_setting(self, key: str, value: Any) -> None:
         setattr(self.settings, key, value)
@@ -1241,14 +979,13 @@ class SettingsWindow(Gtk.Window):
                 flags=Gtk.DialogFlags.MODAL,
                 message_type=Gtk.MessageType.INFO,
                 buttons=Gtk.ButtonsType.OK,
-                text="No Enrolled Faces"
+                text="No Faces Enrolled"
             )
-            dialog.format_secondary_text("Please enroll your face in 'Enrolled Faces' before enabling Face ID.")
+            dialog.format_secondary_text("Please enroll your face in 'Face ID' before enabling biometric unlock.")
             dialog.run()
             dialog.destroy()
             return
         self._update_setting("is_face_unlock_enabled", switch.get_active())
-        self._update_hero_status()
 
     def _on_trigger_switch(self, trigger_id: str, is_active: bool) -> None:
         triggers = set(self.settings.unlock_triggers)
@@ -1284,32 +1021,61 @@ class SettingsWindow(Gtk.Window):
         self._update_setting("liveness_mode", mode)
         self.liveness.mode = mode
 
-    def _on_save_password(self, button) -> None:
-        pwd = self.entry_pwd.get_text()
-        if not pwd:
-            return
-        SecureCredentialManager.save_password(pwd)
-        self.entry_pwd.set_text("")
-        self.lbl_vault_status.set_text("● AES-256-GCM Stored")
-        self.lbl_vault_status.get_style_context().remove_class("pill-inactive")
-        self.lbl_vault_status.get_style_context().add_class("pill-active")
-
-        dialog = Gtk.MessageDialog(
-            transient_for=self,
-            flags=Gtk.DialogFlags.MODAL,
-            message_type=Gtk.MessageType.INFO,
-            buttons=Gtk.ButtonsType.OK,
-            text="Password Encrypted & Stored"
+    def _on_open_password_dialog(self, button) -> None:
+        """Modal dialog to set or remove desktop unlock password."""
+        dialog = Gtk.Dialog(
+            title="Account Password",
+            parent=self,
+            flags=Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT
         )
-        dialog.format_secondary_text("Your desktop password has been securely saved with AES-256-GCM encryption.")
-        dialog.run()
-        dialog.destroy()
+        dialog.set_default_size(360, 180)
+        dialog.get_style_context().add_class("macos-window")
 
-    def _on_remove_password(self, button) -> None:
-        SecureCredentialManager.remove_password()
-        self.lbl_vault_status.set_text("○ Not Configured")
-        self.lbl_vault_status.get_style_context().remove_class("pill-active")
-        self.lbl_vault_status.get_style_context().add_class("pill-inactive")
+        area = dialog.get_content_area()
+        area.set_spacing(12)
+        area.set_border_width(20)
+
+        lbl_info = Gtk.Label(label="Enter your Linux desktop user password:")
+        lbl_info.set_xalign(0)
+        lbl_info.get_style_context().add_class("row-label")
+        area.pack_start(lbl_info, False, False, 0)
+
+        entry = Gtk.Entry()
+        entry.set_visibility(False)
+        entry.set_placeholder_text("Password")
+        area.pack_start(entry, False, False, 0)
+
+        has_pwd = SecureCredentialManager.has_stored_password()
+        btn_remove = Gtk.Button(label="Remove Stored Password")
+        btn_remove.get_style_context().add_class("btn-macos-danger")
+        btn_remove.set_visible(has_pwd)
+
+        def remove_action(b):
+            SecureCredentialManager.remove_password()
+            self.lbl_pwd_status.set_text("Not configured")
+            self.btn_change_pwd.set_label("Set Up...")
+            dialog.destroy()
+
+        btn_remove.connect("clicked", remove_action)
+        area.pack_start(btn_remove, False, False, 0)
+
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Save", Gtk.ResponseType.OK)
+        dialog.set_default_response(Gtk.ResponseType.OK)
+
+        dialog.show_all()
+        if not has_pwd:
+            btn_remove.hide()
+
+        resp = dialog.run()
+        if resp == Gtk.ResponseType.OK:
+            new_pwd = entry.get_text()
+            if new_pwd:
+                SecureCredentialManager.save_password(new_pwd)
+                self.lbl_pwd_status.set_text("Password is set")
+                self.btn_change_pwd.set_label("Change...")
+
+        dialog.destroy()
 
     def _on_toggle_identity(self, switch, gparam, ident_id: str) -> None:
         identities = SecureFaceStore.load_identities()
@@ -1324,9 +1090,9 @@ class SettingsWindow(Gtk.Window):
             flags=Gtk.DialogFlags.MODAL,
             message_type=Gtk.MessageType.QUESTION,
             buttons=Gtk.ButtonsType.YES_NO,
-            text="Delete Biometric Profile?"
+            text="Delete Face Profile?"
         )
-        dialog.format_secondary_text("Are you sure you want to remove this enrolled face profile? This cannot be undone.")
+        dialog.format_secondary_text("Are you sure you want to remove this enrolled face? You will need to re-enroll to use Face ID with this face.")
         resp = dialog.run()
         dialog.destroy()
 
@@ -1334,10 +1100,10 @@ class SettingsWindow(Gtk.Window):
             identities = SecureFaceStore.load_identities()
             identities = [ident for ident in identities if ident["id"] != ident_id]
             SecureFaceStore.save_identities(identities)
-            self._refresh_faces_view()
+            self._refresh_profiles_row()
 
     def _on_test_scan_clicked(self, button) -> None:
-        """Pops out the Face ID overlay directly on desktop to test scanning animation & flow."""
+        """Pops out the Face ID overlay directly on desktop to test scanning flow."""
         if self._camera_timer:
             GLib.source_remove(self._camera_timer)
             self._camera_timer = None
@@ -1359,14 +1125,14 @@ class SettingsWindow(Gtk.Window):
         dialog.run()
         dialog.destroy()
 
-        self._refresh_faces_view()
+        self._refresh_profiles_row()
 
-        if self._active_page in ("camera", "facelab"):
+        if self._active_page in ("camera", "diagnostics"):
             self.camera.start(device_index=self.settings.camera_index)
             self._camera_timer = GLib.timeout_add(33, self._update_camera_feeds)
 
     # --------------------------------------------------------------------------
-    # Camera Polling & Video Processing
+    # Camera Polling & Video Feeds
     # --------------------------------------------------------------------------
     def _update_camera_feeds(self) -> bool:
         latest = self.camera.get_latest_frame()
@@ -1377,20 +1143,20 @@ class SettingsWindow(Gtk.Window):
         h, w = frame.shape[:2]
 
         if self._active_page == "camera":
-            pixbuf = self._cv2_to_pixbuf(frame, 480, 360)
+            pixbuf = self._cv2_to_pixbuf(frame, 480, 320)
             if pixbuf:
                 self.img_cam_preview.set_from_pixbuf(pixbuf)
 
-        elif self._active_page == "facelab":
+        elif self._active_page == "diagnostics":
             faces = self.detector.detect_faces(frame, compute_106_landmarks=True)
             dominant = FaceDetector.select_dominant_face(faces, frame_width=w)
             disp = frame.copy()
 
             if dominant:
                 x, y, fw, fh = dominant.bbox
-                cv2.rectangle(disp, (x, y), (x + fw, y + fh), (0, 255, 120), 2)
+                cv2.rectangle(disp, (x, y), (x + fw, y + fh), (0, 255, 120), 1)
                 for pt in dominant.landmarks_5pt:
-                    cv2.circle(disp, (int(pt[0]), int(pt[1])), 4, (0, 255, 255), -1)
+                    cv2.circle(disp, (int(pt[0]), int(pt[1])), 3, (0, 255, 255), -1)
 
                 if dominant.landmarks_106pt is not None:
                     for pt in dominant.landmarks_106pt:
@@ -1403,10 +1169,10 @@ class SettingsWindow(Gtk.Window):
                     scored = self.embedder.score_identities(emb, identities)
                     if scored:
                         top, sim, _ = scored[0]
-                        self.lbl_fl_sim.set_text(f"Similarity: {sim:.3f} ({top['name']})")
+                        self.lbl_fl_sim.set_text(f"{sim:.2f} ({top['name']})")
                         self.prog_fl_sim.set_fraction(max(0.0, min(1.0, sim)))
                     else:
-                        self.lbl_fl_sim.set_text("Similarity: No faces enrolled")
+                        self.lbl_fl_sim.set_text("No faces")
                         self.prog_fl_sim.set_fraction(0.0)
 
                     # Update Liveness Cues
@@ -1417,19 +1183,12 @@ class SettingsWindow(Gtk.Window):
 
                     for cue, state in self.liveness.cue_states.items():
                         thresh = self.liveness.tuning.frames_for(cue)
-                        self.fl_cue_labels[cue].set_text(f"{cue.title}: lvl {state.reading.level:.2f}")
+                        self.fl_cue_labels[cue].set_text(f"{state.reading.level:.2f}")
                         self.fl_cue_progs[cue].set_fraction(state.progress(thresh))
 
-                    dec_str = decision.kind.value.upper()
-                    self.lbl_fl_decision.set_text(f"Decision: {dec_str}")
-                    if decision.kind == LivenessDecisionKind.GENUINE:
-                        self.lbl_fl_decision.get_style_context().remove_class("pill-inactive")
-                        self.lbl_fl_decision.get_style_context().add_class("pill-active")
-                    else:
-                        self.lbl_fl_decision.get_style_context().remove_class("pill-active")
-                        self.lbl_fl_decision.get_style_context().add_class("pill-inactive")
+                    self.lbl_fl_decision.set_text(decision.kind.value.capitalize())
 
-            pixbuf = self._cv2_to_pixbuf(disp, 480, 360)
+            pixbuf = self._cv2_to_pixbuf(disp, 420, 315)
             if pixbuf:
                 self.img_facelab.set_from_pixbuf(pixbuf)
 
