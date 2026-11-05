@@ -79,6 +79,27 @@ def run_windows_settings():
                                   bg="#1C1C1E", fg="#FFFFFF", selectcolor="#0071E3", activebackground="#1C1C1E", activeforeground="#FFFFFF")
     chk_liveness.pack(anchor="w", pady=4)
 
+    # Triggers & Behavior
+    tk.Label(card_gen, text="Unlock Triggers:", font=("Segoe UI", 10, "bold"), bg="#1C1C1E", fg="#FFFFFF").pack(anchor="w", pady=(8, 2))
+    var_wake = tk.BooleanVar(value="on_wake" in settings.unlock_triggers)
+    var_lock = tk.BooleanVar(value="on_lock" in settings.unlock_triggers)
+    var_space = tk.BooleanVar(value="on_space" in settings.unlock_triggers)
+    tk.Checkbutton(card_gen, text="On Wake (screen turned on / lid opened)", variable=var_wake, bg="#1C1C1E", fg="#E5E5E7", selectcolor="#0071E3", activebackground="#1C1C1E").pack(anchor="w")
+    tk.Checkbutton(card_gen, text="On Lock (immediate scan upon screen lock)", variable=var_lock, bg="#1C1C1E", fg="#E5E5E7", selectcolor="#0071E3", activebackground="#1C1C1E").pack(anchor="w")
+    tk.Checkbutton(card_gen, text="On Space (when spacebar is pressed at lockscreen)", variable=var_space, bg="#1C1C1E", fg="#E5E5E7", selectcolor="#0071E3", activebackground="#1C1C1E").pack(anchor="w")
+
+    var_retry = tk.BooleanVar(value=settings.auto_retry_once)
+    tk.Checkbutton(card_gen, text="Auto-retry scan once on failed recognition", variable=var_retry, bg="#1C1C1E", fg="#E5E5E7", selectcolor="#0071E3", activebackground="#1C1C1E").pack(anchor="w", pady=(4, 0))
+
+    var_anim = tk.BooleanVar(value=settings.show_unlock_animation)
+    tk.Checkbutton(card_gen, text="Show Face ID floating overlay on screen", variable=var_anim, bg="#1C1C1E", fg="#E5E5E7", selectcolor="#0071E3", activebackground="#1C1C1E").pack(anchor="w")
+
+    # Camera Device Index
+    tk.Label(card_gen, text="Camera Device Index:", font=("Segoe UI", 10, "bold"), bg="#1C1C1E", fg="#FFFFFF").pack(anchor="w", pady=(8, 2))
+    cam_index_var = tk.IntVar(value=settings.camera_index)
+    spin_cam = ttk.Spinbox(card_gen, from_=0, to=5, textvariable=cam_index_var, width=6)
+    spin_cam.pack(anchor="w", pady=2)
+
     # Sliders
     tk.Label(card_gen, text="Match Similarity Threshold (Default: 0.60):", bg="#1C1C1E", fg="#8E8E93").pack(anchor="w", pady=(12, 2))
     scale_thresh = tk.Scale(card_gen, from_=0.40, to=0.85, resolution=0.01, orient="horizontal",
@@ -92,16 +113,38 @@ def run_windows_settings():
     scale_timeout.set(settings.face_detection_seconds)
     scale_timeout.pack(fill="x", pady=2)
 
+    def test_preview_scan():
+        try:
+            from blink.core.coordinator import FaceUnlockCoordinator
+            coord = FaceUnlockCoordinator()
+            coord.overlay._is_desktop_preview = True
+            threading.Thread(target=coord.test_scan, daemon=True).start()
+        except Exception as e:
+            messagebox.showerror("Blink", f"Test scan failed: {e}")
+
+    btn_test_preview = ttk.Button(tab_general, text="▶ Preview Face ID Card (Test Scan)", command=test_preview_scan)
+    btn_test_preview.pack(side="left", padx=16, pady=16)
+
     def save_general():
         settings.is_face_unlock_enabled = var_enabled.get()
         settings.liveness_checks_enabled = var_liveness.get()
+        settings.auto_retry_once = var_retry.get()
+        settings.show_unlock_animation = var_anim.get()
+        settings.camera_index = int(cam_index_var.get())
         settings.match_threshold = float(scale_thresh.get())
         settings.face_detection_seconds = int(scale_timeout.get())
+
+        trigs = []
+        if var_wake.get(): trigs.append("on_wake")
+        if var_lock.get(): trigs.append("on_lock")
+        if var_space.get(): trigs.append("on_space")
+        settings.unlock_triggers = trigs
+
         settings.save()
         messagebox.showinfo("Blink", "Settings saved successfully.")
 
     btn_save = ttk.Button(tab_general, text="Save Settings", style="Accent.TButton", command=save_general)
-    btn_save.pack(anchor="e", padx=16, pady=16)
+    btn_save.pack(side="right", padx=16, pady=16)
 
     # -------------------------------------------------------------
     # Tab 2: Password
