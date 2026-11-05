@@ -142,7 +142,11 @@ class WindowsNotchOverlayWindow:
 
         self.card_size = 148.0
         self.corner_radius = 28.0
-        self.video_size = 104.0
+        self.video_size = 116.0
+
+        self.window_width = 220.0
+        self.window_height = 188.0
+        self._custom_reason: Optional[str] = None
 
         AnimationAssets.load_all(target_size=int(self.video_size))
 
@@ -247,7 +251,7 @@ class WindowsNotchOverlayWindow:
             user32.RegisterClassExW(ctypes.byref(wc))
 
             cx_screen = user32.GetSystemMetrics(SM_CXSCREEN)
-            x_pos = int((cx_screen - int(self.card_size)) / 2)
+            x_pos = int((cx_screen - int(self.window_width)) / 2)
             y_pos = int(self.current_y)
 
             # WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE prevents stealing focus
@@ -261,8 +265,8 @@ class WindowsNotchOverlayWindow:
                 style,
                 x_pos,
                 y_pos,
-                int(self.card_size),
-                int(self.card_size),
+                int(self.window_width),
+                int(self.window_height),
                 None,
                 None,
                 hinst,
@@ -270,7 +274,7 @@ class WindowsNotchOverlayWindow:
             )
 
             if self._hwnd:
-                # Apply hardware 22px rounded corner region mask
+                # Apply hardware rounded corner and text region mask
                 self._apply_round_region()
 
             self._ready_event.set()
@@ -286,34 +290,48 @@ class WindowsNotchOverlayWindow:
             self._ready_event.set()
 
     def _apply_round_region(self) -> None:
-        """Applies Win32 CreateRoundRectRgn to carve 22px rounded corners into window hardware."""
+        """Applies Win32 region clipping covering squircle card and external text area."""
         if not self._hwnd or not hasattr(ctypes, "windll"):
             return
         try:
             gdi32 = ctypes.windll.gdi32
             user32 = ctypes.windll.user32
-            w = int(self.card_size)
-            h = int(self.card_size)
-            # Corner radius is 22px; diameter is 44px
+            w = int(self.window_width)
+            h = int(self.window_height)
+            card_w = int(self.card_size)
+            card_h = int(self.card_size)
+            card_x = (w - card_w) // 2
             diam = int(self.corner_radius * 2)
-            rgn = gdi32.CreateRoundRectRgn(0, 0, w + 1, h + 1, diam, diam)
-            user32.SetWindowRgn(self._hwnd, rgn, True)
+
+            rgn1 = gdi32.CreateRoundRectRgn(card_x, 0, card_x + card_w + 1, card_h + 1, diam, diam)
+            rgn2 = gdi32.CreateRectRgn(10, card_h + 4, w - 10, h)
+            gdi32.CombineRgn(rgn1, rgn1, rgn2, 2)  # RGN_OR = 2
+            user32.SetWindowRgn(self._hwnd, rgn1, True)
+            gdi32.DeleteObject(rgn2)
         except Exception as e:
             print(f"[WindowsNotchOverlay] Region clipping error: {e}")
 
     def _render_current_frame(self, hdc: int) -> None:
-        """Composites obsidian black glass background, active animation frame, and colored border."""
+        """Composites obsidian squircle card, active animation, and external Apple-style subtitle."""
         if not hasattr(ctypes, "windll"):
             return
 
-        w = int(self.card_size)
-        h = int(self.card_size)
-        v_size = int(getattr(self, "video_size", 104))
-        vx = (w - v_size) // 2
-        vy = 8
+        w = int(self.window_width)
+        h = int(self.window_height)
+        card_w = int(self.card_size)
+        card_h = int(self.card_size)
+        card_x = (w - card_w) // 2
+        card_y = 0
 
-        # Base obsidian canvas: RGBA (8, 5, 5, 255)
-        canvas = np.full((h, w, 4), (8, 5, 5, 255), dtype=np.uint8)
+        v_size = int(getattr(self, "video_size", 116))
+        vx = card_x + (card_w - v_size) // 2
+        vy = card_y + (card_h - v_size) // 2
+
+        # Base canvas (RGBA)
+        canvas = np.zeros((h, w, 4), dtype=np.uint8)
+
+        # 1. Fill card area with obsidian black: RGBA (8, 5, 5, 255)
+        canvas[card_y:card_y + card_h, card_x:card_x + card_w] = (8, 5, 5, 255)
 
         # Blit active animation surface
         frame: Optional[np.ndarray] = None
@@ -332,40 +350,31 @@ class WindowsNotchOverlayWindow:
             target_roi = canvas[vy:vy + v_size, vx:vx + v_size, :3]
             canvas[vy:vy + v_size, vx:vx + v_size, :3] = (frame[:, :, :3] * alpha + target_roi * (1.0 - alpha)).astype(np.uint8)
 
-        # Status Pill Banner (Website Style)
+        # External Subtitle Text (Apple Style, zero emojis)
         if self.phase == OverlayPhase.SUCCESS:
-            banner_text = "VERIFIED • UNLOCKED"
-            text_color = (102, 230, 0)  # Apple Green in BGR
+            banner_text = "Unlocked"
+            text_color = (102, 230, 0)   # Apple Green in BGR
             border_color = (88, 209, 48)  # Apple Green in BGR
         elif self.phase == OverlayPhase.FAILURE:
-            banner_text = "NOT RECOGNIZED"
-            text_color = (58, 69, 255)  # Apple Red in BGR
+            banner_text = getattr(self, "_custom_reason", None) or "Face Not Recognized"
+            text_color = (58, 69, 255)   # Apple Red in BGR
             border_color = (58, 69, 255)  # Apple Red in BGR
         else:
-            banner_text = "FACE ID • SCANNING"
-            text_color = (64, 217, 0)  # Subtle Green in BGR
-            border_color = (76, 64, 64)  # Subtle dark slate in BGR
+            banner_text = "Face ID"
+            text_color = (255, 255, 255) # Clean White in BGR
+            border_color = (76, 64, 64)   # Subtle slate in BGR
 
-        # Draw status pill background at bottom
-        pill_y1 = 118
-        pill_y2 = 134
-        pill_w = 120
-        pill_x1 = (w - pill_w) // 2
-        pill_x2 = pill_x1 + pill_w
-        cv2.rectangle(canvas, (pill_x1, pill_y1), (pill_x2, pill_y2), (32, 28, 28, 255), thickness=-1)
-        cv2.putText(
-            canvas,
-            banner_text,
-            (pill_x1 + 8, pill_y1 + 11),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.30,
-            text_color + (255,),
-            1,
-            cv2.LINE_AA
-        )
+        # Draw smooth card perimeter ring
+        cv2.rectangle(canvas, (card_x, card_y), (card_x + card_w - 1, card_y + card_h - 1), border_color + (255,), thickness=2)
 
-        # Draw smooth outer perimeter ring
-        cv2.rectangle(canvas, (0, 0), (w - 1, h - 1), border_color + (255,), thickness=2)
+        # Draw text centered outside below the card
+        (tw, th), _ = cv2.getTextSize(banner_text, cv2.FONT_HERSHEY_SIMPLEX, 0.44, 1)
+        tx = max(0, (w - tw) // 2)
+        ty = card_h + 22
+        # Text drop shadow
+        cv2.putText(canvas, banner_text, (tx, ty + 1), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (0, 0, 0, 180), 1, cv2.LINE_AA)
+        # Main text
+        cv2.putText(canvas, banner_text, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.44, text_color + (255,), 1, cv2.LINE_AA)
 
         # Blit directly to HDC via SetDIBitsToDevice (<0.2ms)
         bmi = BITMAPINFO()
@@ -397,7 +406,7 @@ class WindowsNotchOverlayWindow:
         user32 = ctypes.windll.user32
         cx_screen = user32.GetSystemMetrics(SM_CXSCREEN)
         shake_x = math.sin(self.anim_tick * 26.0) * 5.0 * self.shake_decay
-        x = int((cx_screen - int(self.card_size)) / 2 + shake_x)
+        x = int((cx_screen - int(self.window_width)) / 2 + shake_x)
         y = int(self.current_y)
 
         user32.SetWindowPos(
@@ -405,8 +414,8 @@ class WindowsNotchOverlayWindow:
             HWND_TOPMOST,
             x,
             y,
-            int(self.card_size),
-            int(self.card_size),
+            int(self.window_width),
+            int(self.window_height),
             SWP_NOACTIVATE | SWP_SHOWWINDOW,
         )
 
@@ -484,6 +493,7 @@ class WindowsNotchOverlayWindow:
     def finish_success(self) -> None:
         self.phase = OverlayPhase.SUCCESS
         self.unlock_frame_idx = 0
+        self._custom_reason = None
         self.current_y = self.target_y
         self.show()
         self._reposition()
@@ -493,6 +503,8 @@ class WindowsNotchOverlayWindow:
         self.phase = OverlayPhase.FAILURE
         self.failure_frame_idx = 0
         self.shake_decay = 1.0
+        clean_reason = reason.replace("⚠️", "").replace("•", "").strip() if reason else ""
+        self._custom_reason = clean_reason if clean_reason else "Face Not Recognized"
         self.show()
         self._reposition()
         self._start_anim_loop()
