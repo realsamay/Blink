@@ -126,11 +126,6 @@ class LinuxNotchOverlayWindow(Gtk.Window):
         self.corner_radius = 28.0
         self.video_size = 116.0
 
-        # Total overlay bounds: 220px wide (allows clean centering of subtitle) x 188px high
-        self.window_width = 220.0
-        self.window_height = 188.0
-        self._custom_reason: Optional[str] = None
-
         # Preload animations into memory
         AnimationAssets.load_all(target_size=int(self.video_size))
 
@@ -175,7 +170,7 @@ class LinuxNotchOverlayWindow(Gtk.Window):
         self.connect("button-press-event", self.on_click)
         self.connect("destroy", self._on_destroy)
 
-        self.set_size_request(int(self.window_width), int(self.window_height))
+        self.set_size_request(int(self.card_size), int(self.card_size))
         self.realize()
         self.apply_shape_mask()
         self.reposition()
@@ -205,15 +200,12 @@ class LinuxNotchOverlayWindow(Gtk.Window):
         self._anim_running = False
 
     def apply_shape_mask(self) -> None:
-        """Applies hardware X11 shape mask covering the squircle card and external subtitle region."""
+        """Applies hardware X11 shape mask covering the squircle card."""
         if getattr(self, "_is_dead", False):
             return
-        w = int(self.window_width)
-        h = int(self.window_height)
-        card_w = int(self.card_size)
-        card_h = int(self.card_size)
+        w = int(self.card_size)
+        h = int(self.card_size)
         rad = self.corner_radius
-        card_x = (w - card_w) // 2
 
         surf = cairo.ImageSurface(cairo.FORMAT_A1, w, h)
         cr = cairo.Context(surf)
@@ -222,19 +214,12 @@ class LinuxNotchOverlayWindow(Gtk.Window):
         cr.set_operator(cairo.OPERATOR_SOURCE)
         cr.set_source_rgba(1, 1, 1, 1)
 
-        # 1. Card squircle mask
         cr.new_sub_path()
-        cr.arc(card_x + card_w - rad, rad, rad, -math.pi / 2, 0)
-        cr.arc(card_x + card_w - rad, card_h - rad, rad, 0, math.pi / 2)
-        cr.arc(card_x + rad, card_h - rad, rad, math.pi / 2, math.pi)
-        cr.arc(card_x + rad, rad, rad, math.pi, 3 * math.pi / 2)
+        cr.arc(w - rad, rad, rad, -math.pi / 2, 0)
+        cr.arc(w - rad, h - rad, rad, 0, math.pi / 2)
+        cr.arc(rad, h - rad, rad, math.pi / 2, math.pi)
+        cr.arc(rad, rad, rad, math.pi, 3 * math.pi / 2)
         cr.close_path()
-        cr.fill()
-
-        # 2. Text region below card mask
-        text_y = card_h + 4.0
-        text_h = h - text_y
-        cr.rectangle(10.0, text_y, w - 20.0, text_h)
         cr.fill()
 
         try:
@@ -287,12 +272,12 @@ class LinuxNotchOverlayWindow(Gtk.Window):
         if monitor:
             geom = monitor.get_geometry()
             shake_x = math.sin(self.anim_tick * 26.0) * 5.0 * self.shake_decay
-            x = geom.x + (geom.width - int(self.window_width)) // 2 + int(shake_x)
+            x = geom.x + (geom.width - int(self.card_size)) // 2 + int(shake_x)
             y = int(self.current_y)
             try:
-                self.set_size_request(int(self.window_width), int(self.window_height))
+                self.set_size_request(int(self.card_size), int(self.card_size))
                 self.move(int(x), int(y))
-                self.resize(int(self.window_width), int(self.window_height))
+                self.resize(int(self.card_size), int(self.card_size))
             except Exception:
                 pass
 
@@ -327,10 +312,10 @@ class LinuxNotchOverlayWindow(Gtk.Window):
             display = screen.get_display()
             monitor = display.get_primary_monitor() or display.get_monitor(0)
             geom = monitor.get_geometry()
-            x = geom.x + (geom.width - int(self.window_width)) // 2
+            x = geom.x + (geom.width - int(self.card_size)) // 2
             y = int(self.current_y)
             try:
-                print(f"[NotchOverlay] Reparenting card (148x148) with external subtitle into screensaver {hex(ss_xid)}")
+                print(f"[NotchOverlay] Reparenting card (148x148) into screensaver {hex(ss_xid)}")
                 x11.XReparentWindow(_X11_DISP, xid, ss_xid, int(x), int(y))
                 self._current_parent_xid = ss_xid
                 if show:
@@ -368,7 +353,6 @@ class LinuxNotchOverlayWindow(Gtk.Window):
         """Arms state without popping out onto screen before camera is ready."""
         self.phase = OverlayPhase.SCANNING
         self.idle_frame_idx = 0
-        self._custom_reason = None
 
     def begin_scanning(self) -> None:
         """Smoothly reveals overlay and springs out from behind camera bezel."""
@@ -381,7 +365,6 @@ class LinuxNotchOverlayWindow(Gtk.Window):
 
         self.phase = OverlayPhase.SCANNING
         self.idle_frame_idx = 0
-        self._custom_reason = None
         self.current_y = self.target_y - 35.0
         self.show_all()
         if x11 and _X11_DISP:
@@ -398,13 +381,12 @@ class LinuxNotchOverlayWindow(Gtk.Window):
         self._start_anim_loop()
 
     def set_progress(self, progress: float, subtitle: Optional[str] = None) -> None:
-        # Zero text inside card: pure animations convey all feedback
+        # Zero text: pure animations convey all feedback
         pass
 
     def finish_success(self) -> None:
         self.phase = OverlayPhase.SUCCESS
         self.unlock_frame_idx = 0
-        self._custom_reason = None
         self.current_y = self.target_y
         self.show_all()
         self.apply_shape_mask()
@@ -417,19 +399,10 @@ class LinuxNotchOverlayWindow(Gtk.Window):
         self.phase = OverlayPhase.FAILURE
         self.failure_frame_idx = 0
         self.shake_decay = 1.0  # Trigger spring shake
-        clean_reason = reason.replace("⚠️", "").replace("•", "").strip() if reason else ""
-        self._custom_reason = clean_reason if clean_reason else "Face Not Recognized"
         self.show_all()
         self.apply_shape_mask()
         self.reposition()
         self.queue_draw()
-        self._flush_updates()
-        self._start_anim_loop()
-
-        GLib.timeout_add(auto_collapse_ms, self._auto_collapse_if_unhovered)
-
-    def show_notice(self, title: str, subtitle: str, auto_collapse_ms: int = 2000) -> None:
-        self.finish_failure(reason=subtitle, title=title, auto_collapse_ms=auto_collapse_ms)
         self._flush_updates()
         self._start_anim_loop()
 
@@ -542,22 +515,17 @@ class LinuxNotchOverlayWindow(Gtk.Window):
         cr.restore()
         cr.set_operator(cairo.OPERATOR_OVER)
 
-        total_w = float(widget.get_allocated_width())
-        total_h = float(widget.get_allocated_height())
-
-        card_w = float(self.card_size)
-        card_h = float(self.card_size)
-        card_x = (total_w - card_w) / 2.0
-        card_y = 0.0
+        w = float(widget.get_allocated_width())
+        h = float(widget.get_allocated_height())
         rad = self.corner_radius
 
         # 1. Rounded squircle card background
         cr.save()
         cr.new_sub_path()
-        cr.arc(card_x + card_w - rad, card_y + rad, rad, -math.pi / 2, 0)
-        cr.arc(card_x + card_w - rad, card_y + card_h - rad, rad, 0, math.pi / 2)
-        cr.arc(card_x + rad, card_y + card_h - rad, rad, math.pi / 2, math.pi)
-        cr.arc(card_x + rad, card_y + rad, rad, math.pi, 3 * math.pi / 2)
+        cr.arc(w - rad, rad, rad, -math.pi / 2, 0)
+        cr.arc(w - rad, h - rad, rad, 0, math.pi / 2)
+        cr.arc(rad, h - rad, rad, math.pi / 2, math.pi)
+        cr.arc(rad, rad, rad, math.pi, 3 * math.pi / 2)
         cr.close_path()
 
         # Obsidian black glass background
@@ -567,8 +535,8 @@ class LinuxNotchOverlayWindow(Gtk.Window):
 
         # Video container with rounded corners (centered horizontally & vertically inside the card)
         v_size = float(getattr(self, "video_size", 116.0))
-        vx = card_x + (card_w - v_size) / 2.0
-        vy = card_y + (card_h - v_size) / 2.0
+        vx = (w - v_size) / 2.0
+        vy = (h - v_size) / 2.0
         v_rad = 20.0
 
         cr.save()
@@ -596,51 +564,16 @@ class LinuxNotchOverlayWindow(Gtk.Window):
         cr.restore()  # restore from video clip
         cr.reset_clip()  # restore from card clip
 
-        # Card perimeter border
+        # Pure, plain subtle glass rim (completely uniform, zero green or red lines)
         cr.new_sub_path()
-        cr.arc(card_x + card_w - rad, card_y + rad, rad, -math.pi / 2, 0)
-        cr.arc(card_x + card_w - rad, card_y + card_h - rad, rad, 0, math.pi / 2)
-        cr.arc(card_x + rad, card_y + card_h - rad, rad, math.pi / 2, math.pi)
-        cr.arc(card_x + rad, card_y + rad, rad, math.pi, 3 * math.pi / 2)
+        cr.arc(w - rad, rad, rad, -math.pi / 2, 0)
+        cr.arc(w - rad, h - rad, rad, 0, math.pi / 2)
+        cr.arc(rad, h - rad, rad, math.pi / 2, math.pi)
+        cr.arc(rad, rad, rad, math.pi, 3 * math.pi / 2)
         cr.close_path()
-
-        if self.phase == OverlayPhase.SUCCESS:
-            cr.set_source_rgba(0.19, 0.85, 0.35, 0.95)  # Apple Green
-            cr.set_line_width(1.8)
-        elif self.phase == OverlayPhase.FAILURE:
-            cr.set_source_rgba(1.0, 0.27, 0.23, 0.95)  # Apple Red
-            cr.set_line_width(1.8)
-        else:
-            cr.set_source_rgba(0.25, 0.25, 0.28, 0.80)  # Subtle Slate Border
-            cr.set_line_width(1.4)
+        cr.set_source_rgba(1.0, 1.0, 1.0, 0.12)
+        cr.set_line_width(1.0)
         cr.stroke()
-
-        # 2. Text OUTSIDE below the animation card (Apple style, zero emojis)
-        if self.phase == OverlayPhase.SUCCESS:
-            label = "Unlocked"
-            text_color = (0.19, 0.85, 0.35, 1.0)
-        elif self.phase == OverlayPhase.FAILURE:
-            label = getattr(self, "_custom_reason", None) or "Face Not Recognized"
-            text_color = (1.0, 0.27, 0.23, 1.0)
-        else:
-            label = "Face ID"
-            text_color = (1.0, 1.0, 1.0, 0.95)
-
-        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
-        cr.set_font_size(13.0)
-        ext = cr.text_extents(label)
-        tx = (total_w - ext.width) / 2.0 - ext.x_bearing
-        ty = card_h + 20.0 - ext.y_bearing
-
-        # Subtle dark drop shadow for high legibility over any wallpaper
-        cr.move_to(tx, ty + 1.2)
-        cr.set_source_rgba(0.0, 0.0, 0.0, 0.70)
-        cr.show_text(label)
-
-        # Primary clean text
-        cr.move_to(tx, ty)
-        cr.set_source_rgba(*text_color)
-        cr.show_text(label)
 
         return False
 

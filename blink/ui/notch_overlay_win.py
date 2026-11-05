@@ -144,10 +144,6 @@ class WindowsNotchOverlayWindow:
         self.corner_radius = 28.0
         self.video_size = 116.0
 
-        self.window_width = 220.0
-        self.window_height = 188.0
-        self._custom_reason: Optional[str] = None
-
         AnimationAssets.load_all(target_size=int(self.video_size))
 
         self.phase = OverlayPhase.CLOSED
@@ -251,7 +247,7 @@ class WindowsNotchOverlayWindow:
             user32.RegisterClassExW(ctypes.byref(wc))
 
             cx_screen = user32.GetSystemMetrics(SM_CXSCREEN)
-            x_pos = int((cx_screen - int(self.window_width)) / 2)
+            x_pos = int((cx_screen - int(self.card_size)) / 2)
             y_pos = int(self.current_y)
 
             # WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE prevents stealing focus
@@ -265,8 +261,8 @@ class WindowsNotchOverlayWindow:
                 style,
                 x_pos,
                 y_pos,
-                int(self.window_width),
-                int(self.window_height),
+                int(self.card_size),
+                int(self.card_size),
                 None,
                 None,
                 hinst,
@@ -274,7 +270,7 @@ class WindowsNotchOverlayWindow:
             )
 
             if self._hwnd:
-                # Apply hardware rounded corner and text region mask
+                # Apply hardware rounded corner region mask
                 self._apply_round_region()
 
             self._ready_event.set()
@@ -290,48 +286,33 @@ class WindowsNotchOverlayWindow:
             self._ready_event.set()
 
     def _apply_round_region(self) -> None:
-        """Applies Win32 region clipping covering squircle card and external text area."""
+        """Applies Win32 CreateRoundRectRgn to carve rounded corners into window hardware."""
         if not self._hwnd or not hasattr(ctypes, "windll"):
             return
         try:
             gdi32 = ctypes.windll.gdi32
             user32 = ctypes.windll.user32
-            w = int(self.window_width)
-            h = int(self.window_height)
-            card_w = int(self.card_size)
-            card_h = int(self.card_size)
-            card_x = (w - card_w) // 2
+            w = int(self.card_size)
+            h = int(self.card_size)
             diam = int(self.corner_radius * 2)
-
-            rgn1 = gdi32.CreateRoundRectRgn(card_x, 0, card_x + card_w + 1, card_h + 1, diam, diam)
-            rgn2 = gdi32.CreateRectRgn(10, card_h + 4, w - 10, h)
-            gdi32.CombineRgn(rgn1, rgn1, rgn2, 2)  # RGN_OR = 2
-            user32.SetWindowRgn(self._hwnd, rgn1, True)
-            gdi32.DeleteObject(rgn2)
+            rgn = gdi32.CreateRoundRectRgn(0, 0, w + 1, h + 1, diam, diam)
+            user32.SetWindowRgn(self._hwnd, rgn, True)
         except Exception as e:
             print(f"[WindowsNotchOverlay] Region clipping error: {e}")
 
     def _render_current_frame(self, hdc: int) -> None:
-        """Composites obsidian squircle card, active animation, and external Apple-style subtitle."""
+        """Composites obsidian black glass card, active animation frame, and uniform subtle border."""
         if not hasattr(ctypes, "windll"):
             return
 
-        w = int(self.window_width)
-        h = int(self.window_height)
-        card_w = int(self.card_size)
-        card_h = int(self.card_size)
-        card_x = (w - card_w) // 2
-        card_y = 0
-
+        w = int(self.card_size)
+        h = int(self.card_size)
         v_size = int(getattr(self, "video_size", 116))
-        vx = card_x + (card_w - v_size) // 2
-        vy = card_y + (card_h - v_size) // 2
+        vx = (w - v_size) // 2
+        vy = (h - v_size) // 2
 
-        # Base canvas (RGBA)
-        canvas = np.zeros((h, w, 4), dtype=np.uint8)
-
-        # 1. Fill card area with obsidian black: RGBA (8, 5, 5, 255)
-        canvas[card_y:card_y + card_h, card_x:card_x + card_w] = (8, 5, 5, 255)
+        # Base obsidian canvas: RGBA (8, 5, 5, 255)
+        canvas = np.full((h, w, 4), (8, 5, 5, 255), dtype=np.uint8)
 
         # Blit active animation surface
         frame: Optional[np.ndarray] = None
@@ -350,31 +331,8 @@ class WindowsNotchOverlayWindow:
             target_roi = canvas[vy:vy + v_size, vx:vx + v_size, :3]
             canvas[vy:vy + v_size, vx:vx + v_size, :3] = (frame[:, :, :3] * alpha + target_roi * (1.0 - alpha)).astype(np.uint8)
 
-        # External Subtitle Text (Apple Style, zero emojis)
-        if self.phase == OverlayPhase.SUCCESS:
-            banner_text = "Unlocked"
-            text_color = (102, 230, 0)   # Apple Green in BGR
-            border_color = (88, 209, 48)  # Apple Green in BGR
-        elif self.phase == OverlayPhase.FAILURE:
-            banner_text = getattr(self, "_custom_reason", None) or "Face Not Recognized"
-            text_color = (58, 69, 255)   # Apple Red in BGR
-            border_color = (58, 69, 255)  # Apple Red in BGR
-        else:
-            banner_text = "Face ID"
-            text_color = (255, 255, 255) # Clean White in BGR
-            border_color = (76, 64, 64)   # Subtle slate in BGR
-
-        # Draw smooth card perimeter ring
-        cv2.rectangle(canvas, (card_x, card_y), (card_x + card_w - 1, card_y + card_h - 1), border_color + (255,), thickness=2)
-
-        # Draw text centered outside below the card
-        (tw, th), _ = cv2.getTextSize(banner_text, cv2.FONT_HERSHEY_SIMPLEX, 0.44, 1)
-        tx = max(0, (w - tw) // 2)
-        ty = card_h + 22
-        # Text drop shadow
-        cv2.putText(canvas, banner_text, (tx, ty + 1), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (0, 0, 0, 180), 1, cv2.LINE_AA)
-        # Main text
-        cv2.putText(canvas, banner_text, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.44, text_color + (255,), 1, cv2.LINE_AA)
+        # Draw uniform subtle glass perimeter ring (zero green or red lines)
+        cv2.rectangle(canvas, (0, 0), (w - 1, h - 1), (45, 45, 48, 255), thickness=1)
 
         # Blit directly to HDC via SetDIBitsToDevice (<0.2ms)
         bmi = BITMAPINFO()
@@ -406,7 +364,7 @@ class WindowsNotchOverlayWindow:
         user32 = ctypes.windll.user32
         cx_screen = user32.GetSystemMetrics(SM_CXSCREEN)
         shake_x = math.sin(self.anim_tick * 26.0) * 5.0 * self.shake_decay
-        x = int((cx_screen - int(self.window_width)) / 2 + shake_x)
+        x = int((cx_screen - int(self.card_size)) / 2 + shake_x)
         y = int(self.current_y)
 
         user32.SetWindowPos(
@@ -414,8 +372,8 @@ class WindowsNotchOverlayWindow:
             HWND_TOPMOST,
             x,
             y,
-            int(self.window_width),
-            int(self.window_height),
+            int(self.card_size),
+            int(self.card_size),
             SWP_NOACTIVATE | SWP_SHOWWINDOW,
         )
 
