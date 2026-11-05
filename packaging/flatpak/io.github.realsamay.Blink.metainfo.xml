@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.realsamay.Blink</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Blink</name>
+  <summary>Privacy-first biometric Face ID and face unlock for Linux</summary>
+  <description>
+    <p>
+      Blink brings ultra-fast, 100% offline biometric facial recognition unlock to Linux desktops.
+      Powered by lightweight YuNet face detection and 512-dimensional ArcFace deep Euclidean embeddings,
+      Blink verifies your identity locally on CPU in under 15ms with zero telemetry and zero cloud calls.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>100% Offline: All neural weights run strictly on your local device.</li>
+      <li>Instant Screen Unlock: Sub-25ms virtual hardware injection via /dev/uinput.</li>
+      <li>Apple-grade Lockscreen UI: Sleek squircle floating biometric card matching desktop lockscreens.</li>
+      <li>Low Resource Footprint: Uses less than 150 MB RAM and runs smoothly on standard modern CPUs.</li>
+      <li>Universal Camera Support: Compatible with standard USB webcams, integrated laptop cameras, and infrared (IR) sensors.</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.realsamay.Blink.desktop</launchable>
+  <url type="homepage">https://github.com/realsamay/Blink</url>
+  <url type="bugtracker">https://github.com/realsamay/Blink/issues</url>
+  <url type="vcs-browser">https://github.com/realsamay/Blink</url>
+  <developer_name>realsamay</developer_name>
+  <provides>
+    <binary>blink</binary>
+  </provides>
+  <categories>
+    <category>Utility</category>
+    <category>Security</category>
+    <category>System</category>
+  </categories>
+  <keywords>
+    <keyword>face id</keyword>
+    <keyword>face unlock</keyword>
+    <keyword>biometrics</keyword>
+    <keyword>facial recognition</keyword>
+    <keyword>windows hello alternative</keyword>
+    <keyword>howdy alternative</keyword>
+    <keyword>security</keyword>
+    <keyword>lockscreen</keyword>
+  </keywords>
+  <releases>
+    <release version="2.1.0" date="2026-11-04">
+      <description>
+        <p>Blink release with optimized YuNet 5-point landmark detection and lockscreen biometric overlay.</p>
+      </description>
+    </release>
+  </releases>
+</component>

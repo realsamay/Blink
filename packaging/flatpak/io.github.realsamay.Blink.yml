@@ -1,0 +1,38 @@
+app-id: io.github.realsamay.Blink
+runtime: org.gnome.Platform
+runtime-version: '46'
+sdk: org.gnome.Sdk
+command: blink
+finish-args:
+  # Display & Windowing
+  - --share=ipc
+  - --socket=x11
+  - --socket=wayland
+  - --device=all
+  # Screensaver & lockscreen detection
+  - --talk-name=org.gnome.ScreenSaver
+  - --talk-name=org.cinnamon.ScreenSaver
+  - --talk-name=org.freedesktop.ScreenSaver
+  # Filesystem access for models and user credentials
+  - --filesystem=xdg-config/blink:create
+  # Camera hardware access via V4L2
+  - --device=dri
+
+modules:
+  - name: python3-opencv
+    buildsystem: simple
+    build-commands:
+      - pip3 install --no-index --find-links="file://${PWD}" --prefix=${FLATPAK_DEST} opencv-python-headless onnxruntime numpy
+
+  - name: blink
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 bin/blink ${FLATPAK_DEST}/bin/blink
+      - cp -r blink ${FLATPAK_DEST}/lib/python3.11/site-packages/
+      - cp -r models ${FLATPAK_DEST}/share/blink/models
+      - install -Dm644 packaging/flatpak/io.github.realsamay.Blink.desktop ${FLATPAK_DEST}/share/applications/io.github.realsamay.Blink.desktop
+      - install -Dm644 packaging/flatpak/io.github.realsamay.Blink.metainfo.xml ${FLATPAK_DEST}/share/metainfo/io.github.realsamay.Blink.metainfo.xml
+      - install -Dm644 blink/resources/appicon.png ${FLATPAK_DEST}/share/icons/hicolor/256x256/apps/io.github.realsamay.Blink.png
+    sources:
+      - type: dir
+        path: ../../

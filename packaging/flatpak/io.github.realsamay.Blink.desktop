@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Blink
+GenericName=Biometric Face Unlock
+Comment=Ultra-fast 100% offline biometric face ID for Linux
+Exec=blink --gui
+Icon=io.github.realsamay.Blink
+Terminal=false
+Type=Application
+Categories=Utility;Security;System;
+Keywords=face id;face unlock;biometrics;security;howdy;
+StartupNotify=true
