@@ -384,7 +384,7 @@ class LinuxNotchOverlayWindow(Gtk.Window):
         # Zero text: pure animations convey all feedback
         pass
 
-    def finish_success(self) -> None:
+    def finish_success(self, auto_collapse_ms: int = 1200) -> None:
         self.phase = OverlayPhase.SUCCESS
         self.unlock_frame_idx = 0
         self.current_y = self.target_y
@@ -394,8 +394,9 @@ class LinuxNotchOverlayWindow(Gtk.Window):
         self.queue_draw()
         self._flush_updates()
         self._start_anim_loop()
+        GLib.timeout_add(auto_collapse_ms, self._auto_dismiss)
 
-    def finish_failure(self, reason: str = "", title: str = "", auto_collapse_ms: int = 1800) -> None:
+    def finish_failure(self, reason: str = "", title: str = "", auto_collapse_ms: int = 1600) -> None:
         self.phase = OverlayPhase.FAILURE
         self.failure_frame_idx = 0
         self.shake_decay = 1.0  # Trigger spring shake
@@ -405,8 +406,11 @@ class LinuxNotchOverlayWindow(Gtk.Window):
         self.queue_draw()
         self._flush_updates()
         self._start_anim_loop()
+        GLib.timeout_add(auto_collapse_ms, self._auto_dismiss)
 
-        GLib.timeout_add(auto_collapse_ms, self._auto_collapse_if_unhovered)
+    def _auto_dismiss(self) -> bool:
+        self.clean_close()
+        return False
 
     def show_notice(self, title: str, subtitle: str, auto_collapse_ms: int = 2000) -> None:
         self.finish_failure(reason=subtitle, title=title, auto_collapse_ms=auto_collapse_ms)

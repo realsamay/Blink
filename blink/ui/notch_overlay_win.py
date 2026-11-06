@@ -448,7 +448,7 @@ class WindowsNotchOverlayWindow:
         self._reposition()
         self._start_anim_loop()
 
-    def finish_success(self) -> None:
+    def finish_success(self, auto_collapse_ms: int = 1200) -> None:
         self.phase = OverlayPhase.SUCCESS
         self.unlock_frame_idx = 0
         self._custom_reason = None
@@ -456,6 +456,12 @@ class WindowsNotchOverlayWindow:
         self.show()
         self._reposition()
         self._start_anim_loop()
+
+        def _delayed_collapse():
+            time.sleep(auto_collapse_ms / 1000.0)
+            self.clean_close()
+
+        threading.Thread(target=_delayed_collapse, daemon=True).start()
 
     def finish_failure(self, reason: str = "", title: str = "", auto_collapse_ms: int = 1800) -> None:
         self.phase = OverlayPhase.FAILURE

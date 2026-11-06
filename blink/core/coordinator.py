@@ -476,6 +476,10 @@ class FaceUnlockCoordinator:
         if scan_outcome in ("spoof_suspected", "consistently_wrong_face"):
             self._schedule_auto_retry()
 
+        if force and self.overlay and not getattr(self.overlay, "_is_dead", False):
+            time.sleep(0.5)
+            GLib.idle_add(self.overlay.clean_close)
+
     def _schedule_auto_retry(self) -> None:
         self.settings = BlinkSettings.load()
         if not self.settings.is_face_unlock_enabled:

@@ -1,8 +1,8 @@
 """
 Blink Settings Application for Linux.
 Designed following Apple iOS 27 and macOS Sequoia glassmorphism guidelines:
-liquid glass materials, translucent surfaces, subtle inner light refraction,
-full-sensor uncropped camera previews, and unified Apple biometric controls.
+hardware-blurred obsidian windows, uncropped whole-sensor camera feeds,
+zero-latency background neural diagnostics, and multi-face real-time highlighting.
 """
 
 from __future__ import annotations
@@ -108,13 +108,162 @@ def verify_linux_password(username: str, password: str) -> bool:
             return True
 
 
+def enable_x11_window_blur(window: Gtk.Window) -> None:
+    """Enables hardware blur behind the window on X11 compositors."""
+    try:
+        gdk_win = window.get_window()
+        if gdk_win and hasattr(gdk_win, "get_xid"):
+            xid = gdk_win.get_xid()
+            subprocess.run(["xprop", "-id", str(xid), "-f", "_NET_WM_BLUR_BEHIND_REGION", "32c", "-set", "_NET_WM_BLUR_BEHIND_REGION", "0"], capture_output=True)
+    except Exception:
+        pass
+
+
 # ------------------------------------------------------------------------------
-# Apple iOS 27 / macOS Glassmorphism Stylesheet
+# Asynchronous Background Vision Telemetry Worker
+# Decouples neural inference from GTK UI thread to completely eliminate UI lag!
+# ------------------------------------------------------------------------------
+class VisionTelemetryWorker(threading.Thread):
+    def __init__(self, camera: CameraManager, detector: FaceDetector, aligner: FaceAligner, embedder: ArcFaceEmbedder, liveness: LivenessAnalyzer):
+        super().__init__(daemon=True, name="BlinkVisionWorker")
+        self.camera = camera
+        self.detector = detector
+        self.aligner = aligner
+        self.embedder = embedder
+        self.liveness = liveness
+        self._running = False
+        self._lock = threading.Lock()
+
+        self.last_frame_id = -1
+        self.detected_faces_telemetry: List[Dict[str, Any]] = []
+        self.recognized_identity_ids: Dict[str, Tuple[str, float]] = {}  # {ident_id: (name, sim)}
+        self.top_similarity = 0.0
+        self.top_name = "No Face"
+        self.liveness_cues_data: Dict[Any, Tuple[float, float]] = {}
+        self.liveness_verdict = "Ready"
+        self.inference_latency_ms = 0.0
+
+    def start_worker(self) -> None:
+        if not self._running:
+            self._running = True
+            if not self.is_alive():
+                self.start()
+
+    def stop_worker(self) -> None:
+        self._running = False
+
+    def run(self) -> None:
+        while self._running:
+            try:
+                if not self._running or not self.camera.is_running:
+                    time.sleep(0.04)
+                    continue
+
+                latest = self.camera.get_latest_frame()
+                if latest is None or latest[0] == self.last_frame_id:
+                    time.sleep(0.012)
+                    continue
+
+                frame_id, frame = latest
+                self.last_frame_id = frame_id
+                t0 = time.time()
+
+                h, w = frame.shape[:2]
+                faces = self.detector.detect_faces(frame, compute_106_landmarks=True)
+                identities = SecureFaceStore.load_identities()
+                active_identities = [i for i in identities if i.get("is_enabled", True)]
+
+                faces_telemetry = []
+                recognized_ids = {}
+                top_sim = 0.0
+                top_name = "No Face"
+
+                for face in faces:
+                    aligned = self.aligner.align(face, frame)
+                    matched_name = None
+                    matched_sim = 0.0
+                    is_match = False
+                    matched_id = None
+
+                    if aligned is not None and active_identities:
+                        emb = self.embedder.compute_embedding(aligned)
+                        scored = self.embedder.score_identities(emb, active_identities)
+                        if scored:
+                            best_ident, sim, _ = scored[0]
+                            if sim >= 0.50:  # Biometric match threshold
+                                matched_name = best_ident.get("name", "User")
+                                matched_sim = sim
+                                is_match = True
+                                matched_id = best_ident.get("id")
+                                recognized_ids[matched_id] = (matched_name, matched_sim)
+                                if sim > top_sim:
+                                    top_sim = sim
+                                    top_name = matched_name
+                            else:
+                                matched_name = f"Unknown ({sim:.2f})"
+                                matched_sim = sim
+
+                    faces_telemetry.append({
+                        "bbox": face.bbox,
+                        "name": matched_name or "Unknown Face",
+                        "sim": matched_sim,
+                        "is_match": is_match,
+                        "ident_id": matched_id,
+                        "landmarks_5pt": face.landmarks_5pt,
+                        "landmarks_106pt": face.landmarks_106pt
+                    })
+
+                # Liveness evaluation on dominant face
+                cues_data = {}
+                verdict = "Ready"
+                if faces:
+                    dominant = FaceDetector.select_dominant_face(faces, frame_width=w)
+                    if dominant:
+                        x, y, fw, fh = dominant.bbox
+                        x1, y1 = max(0, x), max(0, y)
+                        x2, y2 = min(w, x + fw), min(h, y + fh)
+                        crop = frame[y1:y2, x1:x2] if (x2 > x1 and y2 > y1) else None
+                        dec = self.liveness.observe(frame, dominant, crop)
+                        verdict = dec.kind.value.capitalize()
+                        for cue, state in self.liveness.cue_states.items():
+                            thresh = self.liveness.tuning.frames_for(cue)
+                            cues_data[cue] = (state.reading.level, state.progress(thresh))
+
+                latency = (time.time() - t0) * 1000.0
+
+                with self._lock:
+                    self.detected_faces_telemetry = faces_telemetry
+                    self.recognized_identity_ids = recognized_ids
+                    self.top_similarity = top_sim
+                    self.top_name = top_name
+                    self.liveness_cues_data = cues_data
+                    self.liveness_verdict = verdict
+                    self.inference_latency_ms = latency
+
+                time.sleep(0.015)
+            except Exception:
+                time.sleep(0.04)
+
+    def get_telemetry(self) -> Dict[str, Any]:
+        with self._lock:
+            return {
+                "faces": list(self.detected_faces_telemetry),
+                "recognized_ids": dict(self.recognized_identity_ids),
+                "top_sim": self.top_similarity,
+                "top_name": self.top_name,
+                "cues": dict(self.liveness_cues_data),
+                "verdict": self.liveness_verdict,
+                "latency_ms": self.inference_latency_ms,
+            }
+
+
+# ------------------------------------------------------------------------------
+# Apple iOS 27 / macOS Sequoia Blurred Glass Stylesheet
 # ------------------------------------------------------------------------------
 MACOS_CSS = """
-/* Liquid Glass & Translucent Obsidian Base */
+/* Hardware-Blurred Obsidian Window Base (96% opacity prevents text see-through) */
 window.macos-window {
-    background-color: rgba(18, 18, 24, 0.88);
+    background-color: rgba(20, 20, 26, 0.96);
     color: #FFFFFF;
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Segoe UI", Roboto, Cantarell, sans-serif;
     border-radius: 14px;
@@ -122,8 +271,8 @@ window.macos-window {
 }
 
 headerbar {
-    background-color: rgba(24, 24, 32, 0.72);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+    background: linear-gradient(180deg, rgba(32, 32, 40, 0.85) 0%, rgba(24, 24, 30, 0.85) 100%);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.10);
     min-height: 42px;
     padding: 0 12px;
 }
@@ -136,7 +285,7 @@ headerbar .title {
 
 /* Glass Sidebar */
 .sidebar {
-    background-color: rgba(16, 16, 22, 0.70);
+    background: linear-gradient(180deg, rgba(20, 20, 28, 0.80) 0%, rgba(16, 16, 22, 0.80) 100%);
     border-right: 1px solid rgba(255, 255, 255, 0.08);
 }
 .sidebar-brand-box {
@@ -149,14 +298,14 @@ headerbar .title {
 }
 .sidebar-brand-sub {
     font-size: 11px;
-    color: #8E8E93;
+    color: #A1A1A6;
 }
 .sidebar-search-box {
     padding: 4px 12px 10px 12px;
 }
 entry.search-entry {
-    background-color: rgba(255, 255, 255, 0.07);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background-color: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     border-radius: 8px;
     color: #FFFFFF;
     font-size: 12px;
@@ -168,7 +317,7 @@ entry.search-entry placeholder {
 }
 entry.search-entry:focus {
     border-color: #0A84FF;
-    background-color: rgba(255, 255, 255, 0.10);
+    background-color: rgba(255, 255, 255, 0.12);
 }
 
 list.sidebar-list {
@@ -179,11 +328,11 @@ list.sidebar-list row {
     border-radius: 8px;
     padding: 6px 10px;
     margin: 2px 8px;
-    color: #C7C7CC;
+    color: #D1D1D6;
     border: none;
 }
 list.sidebar-list row:hover {
-    background-color: rgba(255, 255, 255, 0.06);
+    background-color: rgba(255, 255, 255, 0.07);
     color: #FFFFFF;
 }
 list.sidebar-list row:selected {
@@ -213,7 +362,7 @@ list.sidebar-list row:selected label {
 .group-title {
     font-size: 12px;
     font-weight: 600;
-    color: #8E8E93;
+    color: #A1A1A6;
     margin-top: 20px;
     margin-bottom: 6px;
     margin-left: 2px;
@@ -221,18 +370,18 @@ list.sidebar-list row:selected label {
 }
 .group-footnote {
     font-size: 11.5px;
-    color: #8E8E93;
+    color: #A1A1A6;
     margin-top: 6px;
     margin-bottom: 16px;
     margin-left: 2px;
 }
 
-/* Frosted Liquid Glass Cards */
+/* Inset Group Cards (Rich Frosted Glass Materials) */
 .inset-group {
-    background-color: rgba(34, 34, 42, 0.65);
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: linear-gradient(180deg, rgba(36, 36, 44, 0.75) 0%, rgba(28, 28, 34, 0.75) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.13);
     border-radius: 12px;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 8px 32px rgba(0, 0, 0, 0.35);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 8px 32px rgba(0, 0, 0, 0.40);
     padding: 0;
 }
 .inset-row {
@@ -240,7 +389,7 @@ list.sidebar-list row:selected label {
     min-height: 42px;
 }
 .inset-divider {
-    background-color: rgba(255, 255, 255, 0.07);
+    background-color: rgba(255, 255, 255, 0.08);
     min-height: 1px;
     margin-left: 14px;
 }
@@ -250,16 +399,33 @@ list.sidebar-list row:selected label {
     color: #FFFFFF;
 }
 .row-desc {
+    font-size: 11.5px;
+    color: #A1A1A6;
+}
+
+/* Multi-Face Live Dynamic Highlighting */
+.row-face-recognized {
+    background-color: rgba(52, 199, 89, 0.16);
+    border: 1px solid rgba(52, 199, 89, 0.55);
+    box-shadow: 0 0 16px rgba(52, 199, 89, 0.35);
+    border-radius: 10px;
+}
+.pill-badge-live-match {
+    background-color: rgba(52, 199, 89, 0.22);
+    border: 1px solid rgba(52, 199, 89, 0.50);
+    color: #34C759;
+    border-radius: 12px;
+    padding: 3px 10px;
     font-size: 11px;
-    color: #8E8E93;
+    font-weight: 700;
 }
 
 /* Glass Hero Banner */
 .glass-hero {
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.03) 100%);
-    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: linear-gradient(135deg, rgba(40, 40, 52, 0.80) 0%, rgba(24, 24, 32, 0.80) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.16);
     border-radius: 16px;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 10px 30px rgba(0, 0, 0, 0.35);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.20), 0 10px 30px rgba(0, 0, 0, 0.40);
     padding: 16px 18px;
     margin-bottom: 18px;
 }
@@ -273,10 +439,10 @@ list.sidebar-list row:selected label {
     color: #A1A1A6;
 }
 
-/* Glass Status Badges */
+/* Status Badges */
 .pill-badge-active {
     background-color: rgba(52, 199, 89, 0.18);
-    border: 1px solid rgba(52, 199, 89, 0.40);
+    border: 1px solid rgba(52, 199, 89, 0.45);
     color: #34C759;
     border-radius: 12px;
     padding: 3px 10px;
@@ -285,7 +451,7 @@ list.sidebar-list row:selected label {
 }
 .pill-badge-disabled {
     background-color: rgba(255, 159, 10, 0.18);
-    border: 1px solid rgba(255, 159, 10, 0.40);
+    border: 1px solid rgba(255, 159, 10, 0.45);
     color: #FF9F0A;
     border-radius: 12px;
     padding: 3px 10px;
@@ -295,14 +461,14 @@ list.sidebar-list row:selected label {
 .pill-badge-sensor {
     background-color: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.14);
-    color: #C7C7CC;
+    color: #D1D1D6;
     border-radius: 6px;
     padding: 3px 8px;
     font-size: 11px;
     font-weight: 500;
 }
 
-/* Buttons */
+/* Glass Buttons */
 .btn-macos {
     background-color: rgba(255, 255, 255, 0.09);
     color: #FFFFFF;
@@ -322,7 +488,7 @@ list.sidebar-list row:selected label {
 .btn-macos-primary {
     background-image: linear-gradient(180deg, #0A84FF 0%, #0066CC 100%);
     color: #FFFFFF;
-    border: 1px solid rgba(255, 255, 255, 0.28);
+    border: 1px solid rgba(255, 255, 255, 0.30);
     border-radius: 7px;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.40), 0 4px 14px rgba(10, 132, 255, 0.40);
     font-size: 12px;
@@ -351,7 +517,7 @@ list.sidebar-list row:selected label {
     box-shadow: 0 4px 14px rgba(255, 69, 58, 0.45);
 }
 
-/* Switches (Authentic Apple iOS 27 Toggle) */
+/* Authentic Apple Toggles */
 switch {
     background-color: rgba(255, 255, 255, 0.16);
     background-image: none;
@@ -413,7 +579,7 @@ entry:focus {
     background-color: rgba(255, 255, 255, 0.12);
 }
 
-/* Whole Sensor Camera Viewfinder */
+/* Viewfinder */
 .viewfinder-card {
     background-color: #08080A;
     border: 1px solid rgba(255, 255, 255, 0.16);
@@ -442,7 +608,7 @@ progressbar progress {
 
 
 # ------------------------------------------------------------------------------
-# Cairo Vector Icon Generators (2x Retina Supersampled)
+# Cairo Vector Icon Generators
 # ------------------------------------------------------------------------------
 def create_macos_icon(kind: str, bg_hex: str, size: int = 24) -> cairo.ImageSurface:
     """Renders 2x retina supersampled authentic macOS squircle icons with glass highlight."""
@@ -454,7 +620,6 @@ def create_macos_icon(kind: str, bg_hex: str, size: int = 24) -> cairo.ImageSurf
     h = bg_hex.lstrip("#")
     r, g, b = [int(h[i:i+2], 16) / 255.0 for i in (0, 2, 4)]
 
-    # 6px radius squircle on 24px
     rad = 6.0
     cr.new_sub_path()
     cr.arc(size - rad, rad, rad, -math.pi / 2, 0)
@@ -465,7 +630,6 @@ def create_macos_icon(kind: str, bg_hex: str, size: int = 24) -> cairo.ImageSurf
     cr.set_source_rgb(r, g, b)
     cr.fill_preserve()
 
-    # Subtle inner top glass reflection
     cr.set_line_width(1.0)
     cr.set_source_rgba(1.0, 1.0, 1.0, 0.25)
     cr.stroke()
@@ -587,9 +751,19 @@ class SettingsWindow(Gtk.Window):
         self.embedder = ArcFaceEmbedder()
         self.liveness = LivenessAnalyzer(mode=self.settings.liveness_mode)
 
+        # Vision Worker runs decoupled in background to completely prevent UI lag!
+        self.vision_worker = VisionTelemetryWorker(
+            camera=self.camera,
+            detector=self.detector,
+            aligner=self.aligner,
+            embedder=self.embedder,
+            liveness=self.liveness
+        )
+
         self._active_page = "face_id"
         self._camera_timer: Optional[int] = None
         self._test_coordinator = None
+        self.profile_row_widgets: Dict[str, Dict[str, Any]] = {}
 
         # Build Main Split View
         main_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -615,11 +789,20 @@ class SettingsWindow(Gtk.Window):
         self.show_all()
         self.stack.show_all()
 
-        # Select initial page
+        # Select initial page and start background vision
         self.stack.set_visible_child_name("face_id")
         self.sidebar_list.select_row(self.nav_rows["face_id"])
 
+        self.connect("realize", self._on_realize)
         self.connect("destroy", self._on_destroy)
+
+        # Start camera & vision worker for live recognition
+        self.camera.start(device_index=self.settings.camera_index)
+        self.vision_worker.start_worker()
+        self._camera_timer = GLib.timeout_add(33, self._update_camera_feeds)
+
+    def _on_realize(self, widget) -> None:
+        enable_x11_window_blur(self)
 
     def _apply_css(self) -> None:
         provider = Gtk.CssProvider()
@@ -635,7 +818,6 @@ class SettingsWindow(Gtk.Window):
         vbox.set_size_request(220, -1)
         vbox.get_style_context().add_class("sidebar")
 
-        # Top Brand Header with Blink Logo
         brand_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         brand_box.get_style_context().add_class("sidebar-brand-box")
 
@@ -656,7 +838,6 @@ class SettingsWindow(Gtk.Window):
 
         vbox.pack_start(brand_box, False, False, 0)
 
-        # Search Bar
         search_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         search_box.get_style_context().add_class("sidebar-search-box")
         self.search_entry = Gtk.Entry()
@@ -665,7 +846,6 @@ class SettingsWindow(Gtk.Window):
         search_box.pack_start(self.search_entry, True, True, 0)
         vbox.pack_start(search_box, False, False, 0)
 
-        # Navigation List
         self.sidebar_list = Gtk.ListBox()
         self.sidebar_list.get_style_context().add_class("sidebar-list")
         self.sidebar_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
@@ -711,20 +891,21 @@ class SettingsWindow(Gtk.Window):
         self.stack.set_visible_child_name(page_id)
         self.headerbar.props.title = row._title_text
 
-        # Camera management
-        if page_id in ("camera", "diagnostics"):
+        if page_id in ("face_id", "camera", "diagnostics"):
             if not self.camera._running:
                 self.camera.start(device_index=self.settings.camera_index)
+            self.vision_worker.start_worker()
             if self._camera_timer is None:
                 self._camera_timer = GLib.timeout_add(33, self._update_camera_feeds)
         else:
             if self._camera_timer is not None:
                 GLib.source_remove(self._camera_timer)
                 self._camera_timer = None
+            self.vision_worker.stop_worker()
             self.camera.stop()
 
     # --------------------------------------------------------------------------
-    # Inset Card Helpers with Constrained Width (Anti-Stretch)
+    # Inset Card Helpers
     # --------------------------------------------------------------------------
     def _create_page_wrapper(self, title: str) -> Tuple[Gtk.ScrolledWindow, Gtk.Box]:
         scroll = Gtk.ScrolledWindow()
@@ -797,7 +978,7 @@ class SettingsWindow(Gtk.Window):
             group.pack_start(divider, False, False, 0)
 
     # --------------------------------------------------------------------------
-    # Page 1: Face ID & Password (Unified Apple Settings Experience)
+    # Page 1: Face ID & Password (Multi-Face Highlighting)
     # --------------------------------------------------------------------------
     def _build_face_id_page(self) -> Gtk.Widget:
         scroll, page = self._create_page_wrapper("Face ID & Password")
@@ -831,7 +1012,7 @@ class SettingsWindow(Gtk.Window):
 
         page.pack_start(hero_box, False, False, 0)
 
-        # 2. Enrolled Biometric Profiles
+        # 2. Enrolled Biometric Profiles with Real-Time Multi-Face Highlighting
         page.pack_start(self._create_group_heading("Face ID"), False, False, 0)
 
         self.group_profiles = self._create_inset_group()
@@ -881,7 +1062,6 @@ class SettingsWindow(Gtk.Window):
 
         group_tune = self._create_inset_group()
 
-        # Timeout
         lbl_time_val = Gtk.Label(label=f"{self.settings.face_detection_seconds}s")
         lbl_time_val.get_style_context().add_class("row-desc")
         scale_time = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 2, 10, 1)
@@ -893,7 +1073,6 @@ class SettingsWindow(Gtk.Window):
         h_time.pack_start(lbl_time_val, False, False, 0)
         self._add_inset_row(group_tune, "Scanning duration", "Time window before falling back to manual password", h_time)
 
-        # Threshold
         lbl_thresh_val = Gtk.Label(label=f"{self.settings.match_threshold:.2f}")
         lbl_thresh_val.get_style_context().add_class("row-desc")
         scale_thresh = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.40, 0.85, 0.01)
@@ -954,7 +1133,9 @@ class SettingsWindow(Gtk.Window):
         for child in self.group_profiles.get_children():
             self.group_profiles.remove(child)
 
+        self.profile_row_widgets.clear()
         identities = SecureFaceStore.load_identities()
+
         if not identities:
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
             row.get_style_context().add_class("inset-row")
@@ -980,19 +1161,28 @@ class SettingsWindow(Gtk.Window):
                 row.pack_start(Gtk.Image.new_from_surface(icon_surf), False, False, 0)
 
                 v = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+
+                h_title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
                 name_lbl = Gtk.Label(label=ident.get("name", "User"))
                 name_lbl.set_xalign(0)
                 name_lbl.get_style_context().add_class("row-label")
+                h_title_row.pack_start(name_lbl, False, False, 0)
+
+                # Live In-Camera Match Badge (lights up when person is seen!)
+                badge_match = Gtk.Label(label="● In Camera View")
+                badge_match.get_style_context().add_class("pill-badge-live-match")
+                badge_match.set_no_show_all(True)
+                badge_match.hide()
+                h_title_row.pack_start(badge_match, False, False, 0)
+                v.pack_start(h_title_row, False, False, 0)
 
                 poses_count = len(ident.get("samples", []))
                 sub_lbl = Gtk.Label(label=f"{poses_count} biometric poses enrolled")
                 sub_lbl.set_xalign(0)
                 sub_lbl.get_style_context().add_class("row-desc")
-                v.pack_start(name_lbl, False, False, 0)
                 v.pack_start(sub_lbl, False, False, 0)
                 row.pack_start(v, True, True, 0)
 
-                # Delete Button
                 btn_del = Gtk.Button(label="Delete")
                 btn_del.get_style_context().add_class("btn-macos-danger")
                 btn_del.set_valign(Gtk.Align.CENTER)
@@ -1001,12 +1191,20 @@ class SettingsWindow(Gtk.Window):
 
                 self.group_profiles.pack_start(row, False, False, 0)
 
+                # Cache widgets for live recognition highlighting
+                self.profile_row_widgets[ident["id"]] = {
+                    "row": row,
+                    "badge": badge_match,
+                    "name": ident.get("name", "User"),
+                    "poses": poses_count
+                }
+
                 if not is_last:
                     div = Gtk.Box()
                     div.get_style_context().add_class("inset-divider")
                     self.group_profiles.pack_start(div, False, False, 0)
 
-            # Footer row inside card to add another face
+            # Footer row to add another face
             div = Gtk.Box()
             div.get_style_context().add_class("inset-divider")
             self.group_profiles.pack_start(div, False, False, 0)
@@ -1028,7 +1226,7 @@ class SettingsWindow(Gtk.Window):
         self.group_profiles.show_all()
 
     # --------------------------------------------------------------------------
-    # Page 2: Camera (Whole Sensor Form & Optical Reticle)
+    # Page 2: Camera (Whole Sensor Form)
     # --------------------------------------------------------------------------
     def _build_camera_page(self) -> Gtk.Widget:
         scroll, page = self._create_page_wrapper("Camera")
@@ -1056,7 +1254,6 @@ class SettingsWindow(Gtk.Window):
         self.viewfinder_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.viewfinder_container.get_style_context().add_class("viewfinder-card")
 
-        # Top HUD Bar
         hud_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         hud_bar.get_style_context().add_class("hud-bar")
 
@@ -1074,14 +1271,12 @@ class SettingsWindow(Gtk.Window):
 
         self.viewfinder_container.pack_start(hud_bar, False, False, 0)
 
-        # Center Preview Image (Centered, aspect-ratio preserved!)
         h_align_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         h_align_box.set_halign(Gtk.Align.CENTER)
         self.img_cam_preview = Gtk.Image()
         h_align_box.pack_start(self.img_cam_preview, True, True, 0)
         self.viewfinder_container.pack_start(h_align_box, True, True, 0)
 
-        # Bottom HUD Footer
         hud_foot = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         hud_foot.get_style_context().add_class("hud-footer")
 
@@ -1115,7 +1310,6 @@ class SettingsWindow(Gtk.Window):
         sw_live.connect("notify::active", lambda w, p: self._update_setting("liveness_checks_enabled", w.get_active()))
         self._add_inset_row(group_live, "Check for liveness", "Protects against 2D photos, video replays, and digital screens", sw_live)
 
-        # Mode Selection
         self.rb_light = Gtk.RadioButton.new_with_label(None, "Standard")
         self.rb_heavy = Gtk.RadioButton.new_with_label_from_widget(self.rb_light, "Enhanced")
 
@@ -1138,23 +1332,23 @@ class SettingsWindow(Gtk.Window):
         return scroll
 
     # --------------------------------------------------------------------------
-    # Page 4: Diagnostics & Face Lab (Sensor Form Preserved)
+    # Page 4: Diagnostics & Face Lab (Zero-Lag Live HUD Viewfinder)
     # --------------------------------------------------------------------------
     def _build_diagnostics_page(self) -> Gtk.Widget:
         scroll, page = self._create_page_wrapper("Diagnostics")
 
-        page.pack_start(self._create_group_heading("Real-time vision telemetry"), False, False, 0)
+        page.pack_start(self._create_group_heading("Real-time vision telemetry (live on-camera stats)"), False, False, 0)
 
         hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=18)
 
-        # Left: Live Viewfinder (Aspect-ratio preserved!)
+        # Left: Live Viewfinder with HUD drawn directly on camera
         view_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         view_box.get_style_context().add_class("viewfinder-card")
         self.img_facelab = Gtk.Image()
         view_box.pack_start(self.img_facelab, True, True, 0)
         hbox.pack_start(view_box, False, False, 0)
 
-        # Right: Telemetry Inset Group
+        # Right: Telemetry Meters Inset Group
         group_diag = self._create_inset_group()
 
         self.lbl_fl_sim = Gtk.Label(label="--")
@@ -1189,17 +1383,16 @@ class SettingsWindow(Gtk.Window):
         hbox.pack_start(group_diag, True, True, 0)
         page.pack_start(hbox, False, False, 0)
 
-        page.pack_start(self._create_group_footnote("Facial landmarks and real-time biometric embedding scores are computed entirely on-device."), False, False, 0)
+        page.pack_start(self._create_group_footnote("Facial landmarks, multi-face tracking, and biometric embedding scores are computed asynchronously in background."), False, False, 0)
 
         return scroll
 
     # --------------------------------------------------------------------------
-    # Page 5: About (Official Blink Logo Pedestal)
+    # Page 5: About
     # --------------------------------------------------------------------------
     def _build_about_page(self) -> Gtk.Widget:
         scroll, page = self._create_page_wrapper("About")
 
-        # Top App Pedestal with Official Blink Logo
         top_hero = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         top_hero.get_style_context().add_class("glass-hero")
         top_hero.set_margin_bottom(18)
@@ -1231,7 +1424,6 @@ class SettingsWindow(Gtk.Window):
         top_hero.pack_start(h_brand_row, True, True, 0)
         page.pack_start(top_hero, False, False, 0)
 
-        # Links Group
         page.pack_start(self._create_group_heading("Resources"), False, False, 0)
 
         group_links = self._create_inset_group()
@@ -1248,7 +1440,6 @@ class SettingsWindow(Gtk.Window):
 
         page.pack_start(group_links, False, False, 0)
 
-        # System Info Group
         page.pack_start(self._create_group_heading("Environment"), False, False, 0)
 
         group_sys = self._create_inset_group()
@@ -1280,7 +1471,6 @@ class SettingsWindow(Gtk.Window):
         self._sync_daemon_service()
 
     def _sync_daemon_service(self) -> None:
-        """Restarts the background user service if active so settings apply immediately."""
         def _bg():
             try:
                 proc = subprocess.run(["systemctl", "--user", "is-active", "blink.service"], capture_output=True, text=True)
@@ -1357,7 +1547,6 @@ class SettingsWindow(Gtk.Window):
         self.liveness.mode = mode
 
     def _on_open_password_dialog(self, button) -> None:
-        """Modal dialog to set or change desktop password with real-time PAM validation."""
         current_user = getpass.getuser()
         dialog = Gtk.Dialog(
             title="Account Password",
@@ -1401,7 +1590,7 @@ class SettingsWindow(Gtk.Window):
         area.pack_start(btn_remove, False, False, 0)
 
         dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
-        btn_save = dialog.add_button("Save", Gtk.ResponseType.OK)
+        dialog.add_button("Save", Gtk.ResponseType.OK)
         dialog.set_default_response(Gtk.ResponseType.OK)
 
         dialog.show_all()
@@ -1418,7 +1607,6 @@ class SettingsWindow(Gtk.Window):
                 lbl_feedback.set_text("Password cannot be blank.")
                 continue
 
-            # Real-time password verification against system account
             if verify_linux_password(current_user, pwd):
                 SecureCredentialManager.save_password(pwd)
                 self.lbl_pwd_status.set_text(f"✓ {current_user} (Password Set)")
@@ -1457,22 +1645,36 @@ class SettingsWindow(Gtk.Window):
                     ctx.add_class("pill-badge-disabled")
 
     def _on_test_scan_clicked(self, button) -> None:
-        """Pops out the Face ID overlay directly on desktop to test scanning flow."""
+        """Pops out the Face ID overlay directly on desktop to test scanning flow with guaranteed dismissal."""
         if self._camera_timer:
             GLib.source_remove(self._camera_timer)
             self._camera_timer = None
+        self.vision_worker.stop_worker()
         self.camera.stop()
 
         from blink.core.coordinator import FaceUnlockCoordinator
-        if not hasattr(self, "_test_coordinator") or self._test_coordinator is None:
-            self._test_coordinator = FaceUnlockCoordinator()
+        if hasattr(self, "_test_coordinator") and self._test_coordinator is not None:
+            self._test_coordinator.stop_all_active()
+
+        self._test_coordinator = FaceUnlockCoordinator()
         self._test_coordinator.overlay._is_desktop_preview = True
         self._test_coordinator.test_scan()
+
+        # Restart background feeds after test completes
+        def _resume():
+            time.sleep(2.4)
+            if self._active_page in ("face_id", "camera", "diagnostics"):
+                self.camera.start(device_index=self.settings.camera_index)
+                self.vision_worker.start_worker()
+                if self._camera_timer is None:
+                    self._camera_timer = GLib.timeout_add(33, self._update_camera_feeds)
+        threading.Thread(target=_resume, daemon=True).start()
 
     def _start_enrollment_wizard(self, button) -> None:
         if self._camera_timer:
             GLib.source_remove(self._camera_timer)
             self._camera_timer = None
+        self.vision_worker.stop_worker()
         self.camera.stop()
 
         dialog = EnrollmentDialog(parent=self, camera=self.camera)
@@ -1491,12 +1693,13 @@ class SettingsWindow(Gtk.Window):
                 ctx.remove_class("pill-badge-disabled")
                 ctx.add_class("pill-badge-active")
 
-        if self._active_page in ("camera", "diagnostics"):
+        if self._active_page in ("face_id", "camera", "diagnostics"):
             self.camera.start(device_index=self.settings.camera_index)
+            self.vision_worker.start_worker()
             self._camera_timer = GLib.timeout_add(33, self._update_camera_feeds)
 
     # --------------------------------------------------------------------------
-    # Whole Sensor Aspect-Ratio Preserving Feeds
+    # Whole-Sensor Display & Zero-Lag Real-Time Diagnostics
     # --------------------------------------------------------------------------
     def _update_camera_feeds(self) -> bool:
         latest = self.camera.get_latest_frame()
@@ -1505,63 +1708,98 @@ class SettingsWindow(Gtk.Window):
 
         _, frame = latest
         h, w = frame.shape[:2]
+        telemetry = self.vision_worker.get_telemetry()
+        recognized_ids = telemetry.get("recognized_ids", {})
 
-        if self._active_page == "camera":
-            # Update Live Sensor Metadata HUD
+        # 1. Multi-Face Dynamic Highlighting in Face ID & Password Page
+        if self._active_page == "face_id":
+            for ident_id, widget_dict in self.profile_row_widgets.items():
+                row = widget_dict["row"]
+                badge = widget_dict["badge"]
+                if ident_id in recognized_ids:
+                    name, sim = recognized_ids[ident_id]
+                    row.get_style_context().add_class("row-face-recognized")
+                    badge.set_text(f"● In View ({int(sim * 100)}% match)")
+                    badge.show()
+                else:
+                    row.get_style_context().remove_class("row-face-recognized")
+                    badge.hide()
+
+        # 2. Camera Page: Uncropped Full Sensor Viewfinder
+        elif self._active_page == "camera":
             aspect = w / max(1, h)
             aspect_lbl = "4:3 Full Sensor" if abs(aspect - 4/3) < 0.08 else ("16:9 Widescreen" if abs(aspect - 16/9) < 0.08 else f"{aspect:.2f}:1 Sensor")
             self.lbl_cam_sensor_spec.set_text(f"{w} × {h} • {aspect_lbl}")
 
-            # Scale to max 520x390 preserving EXACT native sensor aspect ratio!
             pixbuf = self._cv2_to_pixbuf_sensor(frame, max_w=520, max_h=380, add_reticle=True)
             if pixbuf:
                 self.img_cam_preview.set_from_pixbuf(pixbuf)
 
+        # 3. Diagnostics Page: Live on-camera HUD stats (Zero lag!)
         elif self._active_page == "diagnostics":
-            faces = self.detector.detect_faces(frame, compute_106_landmarks=True)
-            dominant = FaceDetector.select_dominant_face(faces, frame_width=w)
             disp = frame.copy()
 
-            if dominant:
-                x, y, fw, fh = dominant.bbox
-                cv2.rectangle(disp, (x, y), (x + fw, y + fh), (0, 255, 120), 1)
-                for pt in dominant.landmarks_5pt:
-                    cv2.circle(disp, (int(pt[0]), int(pt[1])), 3, (0, 255, 255), -1)
+            # Render live HUD for every detected face on the camera feed
+            for face_item in telemetry.get("faces", []):
+                fx, fy, fw, fh = face_item["bbox"]
+                is_match = face_item["is_match"]
+                color = (89, 199, 52) if is_match else (200, 200, 200)  # Apple Green or Silver
 
-                if dominant.landmarks_106pt is not None:
-                    for pt in dominant.landmarks_106pt:
-                        cv2.circle(disp, (int(pt[0]), int(pt[1])), 1, (255, 120, 0), -1)
+                # 4 Corner Apple Neon Viewfinder Brackets
+                b_len = 16
+                thick = 2
+                cv2.line(disp, (fx, fy), (fx + b_len, fy), color, thick)
+                cv2.line(disp, (fx, fy), (fx, fy + b_len), color, thick)
+                cv2.line(disp, (fx + fw, fy), (fx + fw - b_len, fy), color, thick)
+                cv2.line(disp, (fx + fw, fy), (fx + fw, fy + b_len), color, thick)
+                cv2.line(disp, (fx, fy + fh), (fx + b_len, fy + fh), color, thick)
+                cv2.line(disp, (fx, fy + fh), (fx, fy + fh - b_len), color, thick)
+                cv2.line(disp, (fx + fw, fy + fh), (fx + fw - b_len, fy + fh), color, thick)
+                cv2.line(disp, (fx + fw, fy + fh), (fx + fw, fy + fh - b_len), color, thick)
 
-                aligned = self.aligner.align(dominant, frame)
-                if aligned is not None:
-                    emb = self.embedder.compute_embedding(aligned)
-                    identities = SecureFaceStore.load_identities()
-                    scored = self.embedder.score_identities(emb, identities)
-                    if scored:
-                        top, sim, _ = scored[0]
-                        self.lbl_fl_sim.set_text(f"{sim:.2f} ({top['name']})")
-                        self.prog_fl_sim.set_fraction(max(0.0, min(1.0, sim)))
-                    else:
-                        self.lbl_fl_sim.set_text("No faces")
-                        self.prog_fl_sim.set_fraction(0.0)
+                # Name Tag Pill above each face
+                sim = face_item["sim"]
+                label_txt = f"{face_item['name']} • {int(sim*100)}%" if is_match else face_item["name"]
+                (tw, th), _ = cv2.getTextSize(label_txt, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
+                py1 = max(4, fy - 24)
+                py2 = max(24, fy - 2)
+                cv2.rectangle(disp, (fx, py1), (fx + tw + 14, py2), (18, 18, 24), -1)
+                cv2.rectangle(disp, (fx, py1), (fx + tw + 14, py2), color, 1)
+                cv2.putText(disp, label_txt, (fx + 7, py2 - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (255, 255, 255), 1, cv2.LINE_AA)
 
-                    # Update Liveness Cues
-                    x1, y1 = max(0, x), max(0, y)
-                    x2, y2 = min(w, x + fw), min(h, y + fh)
-                    face_crop = frame[y1:y2, x1:x2] if (x2 > x1 and y2 > y1) else None
-                    decision = self.liveness.observe(frame, dominant, face_crop)
+                # Landmarks dots
+                if face_item.get("landmarks_5pt") is not None:
+                    for pt in face_item["landmarks_5pt"]:
+                        cv2.circle(disp, (int(pt[0]), int(pt[1])), 2, (0, 255, 255), -1)
 
-                    for cue, state in self.liveness.cue_states.items():
-                        thresh = self.liveness.tuning.frames_for(cue)
-                        self.fl_cue_labels[cue].set_text(f"{state.reading.level:.2f}")
-                        self.fl_cue_progs[cue].set_fraction(state.progress(thresh))
+            # Top-left HUD badge on video feed
+            fps_val = int(1000.0 / max(1.0, telemetry.get("latency_ms", 30.0)))
+            cv2.rectangle(disp, (8, 8), (240, 32), (14, 14, 18), -1)
+            cv2.rectangle(disp, (8, 8), (240, 32), (80, 80, 90), 1)
+            cv2.circle(disp, (18, 20), 4, (52, 199, 89), -1)
+            cv2.putText(disp, f"NEURAL HUD  {w}x{h}  {fps_val} FPS", (28, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (220, 220, 230), 1, cv2.LINE_AA)
 
-                    self.lbl_fl_decision.set_text(decision.kind.value.capitalize())
-
-            # Diagnostics feed: preserve sensor proportions without stretching
-            pixbuf = self._cv2_to_pixbuf_sensor(disp, max_w=380, max_h=285, add_reticle=False)
+            pixbuf = self._cv2_to_pixbuf_sensor(disp, max_w=400, max_h=300, add_reticle=False)
             if pixbuf:
                 self.img_facelab.set_from_pixbuf(pixbuf)
+
+            # Update right telemetry meters in parallel
+            top_sim = telemetry.get("top_sim", 0.0)
+            top_name = telemetry.get("top_name", "No Face")
+            if top_sim > 0.0:
+                self.lbl_fl_sim.set_text(f"{top_sim:.2f} ({top_name})")
+                self.prog_fl_sim.set_fraction(max(0.0, min(1.0, top_sim)))
+            else:
+                self.lbl_fl_sim.set_text("No Match")
+                self.prog_fl_sim.set_fraction(0.0)
+
+            cues_data = telemetry.get("cues", {})
+            for cue, (val, frac) in cues_data.items():
+                if cue in self.fl_cue_labels:
+                    self.fl_cue_labels[cue].set_text(f"{val:.2f}")
+                    self.fl_cue_progs[cue].set_fraction(max(0.0, min(1.0, frac)))
+
+            self.lbl_fl_decision.set_text(telemetry.get("verdict", "Ready"))
 
         return True
 
@@ -1576,21 +1814,16 @@ class SettingsWindow(Gtk.Window):
             resized = cv2.resize(img_bgr, (target_w, target_h), interpolation=cv2.INTER_AREA)
 
             if add_reticle:
-                # Optical viewfinder corner brackets (Apple sensor reticle)
                 b_len = 14
                 color = (255, 255, 255)
                 thick = 1
                 margin = 8
-                # Top-left
                 cv2.line(resized, (margin, margin + b_len), (margin, margin), color, thick)
                 cv2.line(resized, (margin, margin), (margin + b_len, margin), color, thick)
-                # Top-right
                 cv2.line(resized, (target_w - margin - b_len, margin), (target_w - margin, margin), color, thick)
                 cv2.line(resized, (target_w - margin, margin), (target_w - margin, margin + b_len), color, thick)
-                # Bottom-left
                 cv2.line(resized, (margin, target_h - margin - b_len), (margin, target_h - margin), color, thick)
                 cv2.line(resized, (margin, target_h - margin), (margin + b_len, target_h - margin), color, thick)
-                # Bottom-right
                 cv2.line(resized, (target_w - margin - b_len, target_h - margin), (target_w - margin, target_h - margin), color, thick)
                 cv2.line(resized, (target_w - margin, target_h - margin - b_len), (target_w - margin, target_h - margin), color, thick)
 
@@ -1612,4 +1845,5 @@ class SettingsWindow(Gtk.Window):
         if self._camera_timer:
             GLib.source_remove(self._camera_timer)
             self._camera_timer = None
+        self.vision_worker.stop_worker()
         self.camera.stop()
