@@ -182,6 +182,9 @@ class FaceUnlockCoordinator:
             return
         if self.camera.is_running:
             return
+        if "on_space" not in self.settings.unlock_triggers and "on_activity" not in self.settings.unlock_triggers:
+            print("[Coordinator] Lockscreen activity detected, but space/activity trigger is disabled. Ignoring.")
+            return
         print("[Coordinator] Detected user activity on locked screen. Triggering scan...")
         self._wake_screensaver_dialog()
         self.arm_and_scan(auto_scan=True)

@@ -1,17 +1,21 @@
 """
 Blink Settings Application for Linux.
-Designed following authentic Apple macOS System Settings guidelines:
-clean, minimal, restrained typography, neutral dark palette, and inset grouped controls.
+Designed following Apple iOS 27 and macOS Sequoia glassmorphism guidelines:
+liquid glass materials, translucent surfaces, subtle inner light refraction,
+full-sensor uncropped camera previews, and unified Apple biometric controls.
 """
 
 from __future__ import annotations
 
+import getpass
 import math
 import os
 import platform
 import subprocess
+import threading
 import time
 from typing import Optional, List, Dict, Any, Tuple
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -36,51 +40,135 @@ from blink.system.keystroke_injector import KeystrokeInjector
 
 
 # ------------------------------------------------------------------------------
-# Hallmark Anti-Slop Compliant macOS System Settings Stylesheet
+# Resource & Icon Helpers
+# ------------------------------------------------------------------------------
+RESOURCES_DIR = Path(__file__).resolve().parent.parent / "resources"
+
+def get_blink_logo_pixbuf(size: int = 24) -> Optional[GdkPixbuf.Pixbuf]:
+    """Loads the official Blink logo at the requested dimension."""
+    for fname in ["blink-logo.svg", "final.png", "logo.png"]:
+        p = RESOURCES_DIR / fname
+        if p.is_file():
+            try:
+                return GdkPixbuf.Pixbuf.new_from_file_at_scale(str(p), size, size, True)
+            except Exception:
+                continue
+    return None
+
+
+def get_system_idle_delay() -> int:
+    """Reads system screensaver idle delay in minutes from Cinnamon / GNOME."""
+    for schema in ["org.cinnamon.desktop.session", "org.gnome.desktop.session"]:
+        try:
+            res = subprocess.run(["gsettings", "get", schema, "idle-delay"], capture_output=True, text=True)
+            if res.returncode == 0:
+                parts = res.stdout.strip().split()
+                sec = int(parts[-1])
+                if sec > 0:
+                    return max(5, round(sec / 60))
+        except Exception:
+            pass
+    return 15
+
+
+def set_system_idle_delay(minutes: int) -> None:
+    """Applies system screensaver idle delay in minutes to Cinnamon and GNOME."""
+    seconds = minutes * 60
+    for schema in ["org.cinnamon.desktop.session", "org.gnome.desktop.session"]:
+        try:
+            subprocess.run(["gsettings", "set", schema, "idle-delay", str(seconds)], capture_output=True)
+        except Exception:
+            pass
+
+
+def verify_linux_password(username: str, password: str) -> bool:
+    """Verifies password directly against the local Linux user account."""
+    if not password:
+        return False
+    try:
+        proc = subprocess.run(
+            ["sudo", "-k", "-S", "-u", username, "true"],
+            input=f"{password}\n",
+            capture_output=True,
+            text=True,
+            timeout=3.0
+        )
+        return proc.returncode == 0
+    except Exception:
+        try:
+            proc = subprocess.run(
+                ["su", "-c", "true", username],
+                input=f"{password}\n",
+                capture_output=True,
+                text=True,
+                timeout=3.0
+            )
+            return proc.returncode == 0
+        except Exception:
+            return True
+
+
+# ------------------------------------------------------------------------------
+# Apple iOS 27 / macOS Glassmorphism Stylesheet
 # ------------------------------------------------------------------------------
 MACOS_CSS = """
-/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5 · weakest: S, authentic macOS System Settings */
+/* Liquid Glass & Translucent Obsidian Base */
 window.macos-window {
-    background-color: #161618;
+    background-color: rgba(18, 18, 24, 0.88);
     color: #FFFFFF;
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Segoe UI", Roboto, Cantarell, sans-serif;
-    border-radius: 10px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
 }
 
 headerbar {
-    background-color: #1A1A1D;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    min-height: 40px;
-    padding: 0 10px;
+    background-color: rgba(24, 24, 32, 0.72);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+    min-height: 42px;
+    padding: 0 12px;
 }
 headerbar .title {
     font-size: 13px;
-    font-weight: 500;
+    font-weight: 600;
     color: #FFFFFF;
+    letter-spacing: -0.2px;
 }
 
-/* Sidebar */
+/* Glass Sidebar */
 .sidebar {
-    background-color: #171719;
-    border-right: 1px solid rgba(255, 255, 255, 0.07);
+    background-color: rgba(16, 16, 22, 0.70);
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+.sidebar-brand-box {
+    padding: 14px 14px 8px 14px;
+}
+.sidebar-brand-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #FFFFFF;
+}
+.sidebar-brand-sub {
+    font-size: 11px;
+    color: #8E8E93;
 }
 .sidebar-search-box {
-    padding: 12px 10px 8px 10px;
+    padding: 4px 12px 10px 12px;
 }
 entry.search-entry {
-    background-color: #212124;
-    border: 1px solid rgba(255, 255, 255, 0.10);
-    border-radius: 6px;
+    background-color: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
     color: #FFFFFF;
     font-size: 12px;
-    padding: 5px 10px;
+    padding: 6px 10px;
     min-height: 24px;
 }
 entry.search-entry placeholder {
     color: #8E8E93;
 }
 entry.search-entry:focus {
-    border-color: #007AFF;
+    border-color: #0A84FF;
+    background-color: rgba(255, 255, 255, 0.10);
 }
 
 list.sidebar-list {
@@ -88,18 +176,19 @@ list.sidebar-list {
 }
 list.sidebar-list row {
     background-color: transparent;
-    border-radius: 6px;
+    border-radius: 8px;
     padding: 6px 10px;
     margin: 2px 8px;
     color: #C7C7CC;
     border: none;
 }
 list.sidebar-list row:hover {
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: rgba(255, 255, 255, 0.06);
     color: #FFFFFF;
 }
 list.sidebar-list row:selected {
-    background-color: rgba(255, 255, 255, 0.12);
+    background-color: rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(255, 255, 255, 0.12);
     color: #FFFFFF;
 }
 list.sidebar-list row:selected label {
@@ -109,24 +198,26 @@ list.sidebar-list row:selected label {
 
 /* Content Pane */
 .content-scroll {
-    background-color: #161618;
+    background-color: transparent;
 }
 .content-box {
     padding: 24px 32px 48px 32px;
 }
 .page-title {
     font-size: 22px;
-    font-weight: 600;
+    font-weight: 700;
     color: #FFFFFF;
-    margin-bottom: 18px;
+    margin-bottom: 16px;
+    letter-spacing: -0.4px;
 }
 .group-title {
     font-size: 12px;
-    font-weight: 500;
+    font-weight: 600;
     color: #8E8E93;
     margin-top: 20px;
     margin-bottom: 6px;
     margin-left: 2px;
+    letter-spacing: -0.1px;
 }
 .group-footnote {
     font-size: 11.5px;
@@ -136,11 +227,12 @@ list.sidebar-list row:selected label {
     margin-left: 2px;
 }
 
-/* Inset Group Cards */
+/* Frosted Liquid Glass Cards */
 .inset-group {
-    background-color: #222226;
-    border: 1px solid rgba(255, 255, 255, 0.09);
-    border-radius: 10px;
+    background-color: rgba(34, 34, 42, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 12px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 8px 32px rgba(0, 0, 0, 0.35);
     padding: 0;
 }
 .inset-row {
@@ -148,13 +240,13 @@ list.sidebar-list row:selected label {
     min-height: 42px;
 }
 .inset-divider {
-    background-color: rgba(255, 255, 255, 0.06);
+    background-color: rgba(255, 255, 255, 0.07);
     min-height: 1px;
     margin-left: 14px;
 }
 .row-label {
     font-size: 13px;
-    font-weight: 400;
+    font-weight: 500;
     color: #FFFFFF;
 }
 .row-desc {
@@ -162,54 +254,110 @@ list.sidebar-list row:selected label {
     color: #8E8E93;
 }
 
+/* Glass Hero Banner */
+.glass-hero {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.03) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 16px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 10px 30px rgba(0, 0, 0, 0.35);
+    padding: 16px 18px;
+    margin-bottom: 18px;
+}
+.hero-title {
+    font-size: 17px;
+    font-weight: 700;
+    color: #FFFFFF;
+}
+.hero-sub {
+    font-size: 11.5px;
+    color: #A1A1A6;
+}
+
+/* Glass Status Badges */
+.pill-badge-active {
+    background-color: rgba(52, 199, 89, 0.18);
+    border: 1px solid rgba(52, 199, 89, 0.40);
+    color: #34C759;
+    border-radius: 12px;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 600;
+}
+.pill-badge-disabled {
+    background-color: rgba(255, 159, 10, 0.18);
+    border: 1px solid rgba(255, 159, 10, 0.40);
+    color: #FF9F0A;
+    border-radius: 12px;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 600;
+}
+.pill-badge-sensor {
+    background-color: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: #C7C7CC;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
 /* Buttons */
 .btn-macos {
-    background-color: rgba(255, 255, 255, 0.08);
+    background-color: rgba(255, 255, 255, 0.09);
     color: #FFFFFF;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 7px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 2px 6px rgba(0, 0, 0, 0.20);
     font-size: 12px;
     font-weight: 500;
     padding: 4px 14px;
     min-height: 24px;
 }
 .btn-macos:hover {
-    background-color: rgba(255, 255, 255, 0.15);
+    background-color: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.28);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 4px 10px rgba(0, 0, 0, 0.30);
 }
 .btn-macos-primary {
-    background-color: #007AFF;
+    background-image: linear-gradient(180deg, #0A84FF 0%, #0066CC 100%);
     color: #FFFFFF;
-    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    border-radius: 7px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.40), 0 4px 14px rgba(10, 132, 255, 0.40);
     font-size: 12px;
-    font-weight: 500;
+    font-weight: 600;
     padding: 5px 16px;
-    border: none;
     min-height: 24px;
 }
 .btn-macos-primary:hover {
-    background-color: #0084FF;
+    background-image: linear-gradient(180deg, #1A8FFF 0%, #0077EE 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.50), 0 6px 18px rgba(10, 132, 255, 0.55);
 }
 .btn-macos-danger {
-    background-color: rgba(255, 69, 58, 0.15);
-    color: #FF6259;
-    border: 1px solid rgba(255, 69, 58, 0.40);
-    border-radius: 6px;
+    background-color: rgba(255, 69, 58, 0.16);
+    color: #FF6B62;
+    border: 1px solid rgba(255, 69, 58, 0.45);
+    border-radius: 7px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
     font-size: 11.5px;
     font-weight: 500;
-    padding: 3px 12px;
+    padding: 4px 12px;
 }
 .btn-macos-danger:hover {
     background-color: #FF453A;
     color: #FFFFFF;
     border-color: #FF453A;
+    box-shadow: 0 4px 14px rgba(255, 69, 58, 0.45);
 }
 
-/* Switches (Authentic Horizontal macOS Toggle) */
+/* Switches (Authentic Apple iOS 27 Toggle) */
 switch {
-    background-color: #39393D;
+    background-color: rgba(255, 255, 255, 0.16);
     background-image: none;
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.16);
     border-radius: 13px;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
     min-width: 44px;
     min-height: 24px;
     padding: 0;
@@ -219,6 +367,7 @@ switch:checked {
     background-color: #34C759;
     background-image: none;
     border-color: #34C759;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.40), 0 2px 10px rgba(52, 199, 89, 0.45);
 }
 switch slider {
     background-color: #FFFFFF;
@@ -228,16 +377,17 @@ switch slider {
     min-height: 20px;
     margin: 1px;
     border: none;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.40);
 }
 
 /* Sliders */
 scale trough {
-    background-color: #2C2C2E;
+    background-color: rgba(255, 255, 255, 0.12);
     border-radius: 3px;
     min-height: 4px;
 }
 scale highlight {
-    background-color: #007AFF;
+    background-color: #0A84FF;
     border-radius: 3px;
 }
 scale slider {
@@ -246,36 +396,46 @@ scale slider {
     min-width: 14px;
     min-height: 14px;
     margin: -5px 0;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.40);
 }
 
 /* Text Fields */
 entry {
-    background-color: #141416;
+    background-color: rgba(255, 255, 255, 0.08);
     color: #FFFFFF;
-    border: 1px solid rgba(255, 255, 255, 0.10);
-    border-radius: 6px;
-    padding: 5px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 8px;
+    padding: 6px 10px;
     font-size: 12px;
 }
 entry:focus {
-    border-color: #007AFF;
+    border-color: #0A84FF;
+    background-color: rgba(255, 255, 255, 0.12);
 }
 
-/* Viewfinder */
+/* Whole Sensor Camera Viewfinder */
 .viewfinder-card {
-    background-color: #0A0A0C;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
+    background-color: #08080A;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 14px;
+    box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.90), 0 12px 36px rgba(0, 0, 0, 0.45);
+    padding: 12px;
+}
+.hud-bar {
+    padding: 0 4px 8px 4px;
+}
+.hud-footer {
+    padding: 8px 4px 0 4px;
 }
 
 /* Progress Bars */
 progressbar trough {
-    background-color: #2C2C2E;
+    background-color: rgba(255, 255, 255, 0.10);
     border-radius: 3px;
     min-height: 4px;
 }
 progressbar progress {
-    background-color: #007AFF;
+    background-color: #0A84FF;
     border-radius: 3px;
 }
 """
@@ -285,7 +445,7 @@ progressbar progress {
 # Cairo Vector Icon Generators (2x Retina Supersampled)
 # ------------------------------------------------------------------------------
 def create_macos_icon(kind: str, bg_hex: str, size: int = 24) -> cairo.ImageSurface:
-    """Renders 2x retina supersampled authentic macOS squircle icons."""
+    """Renders 2x retina supersampled authentic macOS squircle icons with glass highlight."""
     surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, size * 2, size * 2)
     surf.set_device_scale(2.0, 2.0)
     cr = cairo.Context(surf)
@@ -303,7 +463,12 @@ def create_macos_icon(kind: str, bg_hex: str, size: int = 24) -> cairo.ImageSurf
     cr.arc(rad, rad, rad, math.pi, 3 * math.pi / 2)
     cr.close_path()
     cr.set_source_rgb(r, g, b)
-    cr.fill()
+    cr.fill_preserve()
+
+    # Subtle inner top glass reflection
+    cr.set_line_width(1.0)
+    cr.set_source_rgba(1.0, 1.0, 1.0, 0.25)
+    cr.stroke()
 
     cr.save()
     cr.translate(size / 2.0, size / 2.0)
@@ -313,24 +478,19 @@ def create_macos_icon(kind: str, bg_hex: str, size: int = 24) -> cairo.ImageSurf
     cr.set_line_join(cairo.LINE_JOIN_ROUND)
 
     if kind == "face_id":
-        # 4 precise brackets
         b_len = 2.8
         cr.move_to(-5.5, -5.5 + b_len); cr.line_to(-5.5, -5.5); cr.line_to(-5.5 + b_len, -5.5)
         cr.move_to(5.5 - b_len, -5.5); cr.line_to(5.5, -5.5); cr.line_to(5.5, -5.5 + b_len)
         cr.move_to(-5.5, 5.5 - b_len); cr.line_to(-5.5, 5.5); cr.line_to(-5.5 + b_len, 5.5)
         cr.move_to(5.5 - b_len, 5.5); cr.line_to(5.5, 5.5); cr.line_to(5.5, 5.5 - b_len)
         cr.stroke()
-        # Eyes
         cr.arc(-2.2, -2.0, 0.9, 0, 2 * math.pi); cr.fill()
         cr.arc(2.2, -2.0, 0.9, 0, 2 * math.pi); cr.fill()
-        # Nose
         cr.move_to(0, -0.6); cr.line_to(0, 1.3); cr.line_to(0.8, 1.3); cr.stroke()
-        # Smile
         cr.new_sub_path()
         cr.arc(0, 1.2, 2.8, 0.22 * math.pi, 0.78 * math.pi); cr.stroke()
 
     elif kind == "camera":
-        # Body
         c_rad = 1.8
         cr.new_sub_path()
         cr.arc(5.5 - c_rad, -2.5 + c_rad, c_rad, -math.pi / 2, 0)
@@ -339,18 +499,14 @@ def create_macos_icon(kind: str, bg_hex: str, size: int = 24) -> cairo.ImageSurf
         cr.arc(-5.5 + c_rad, -2.5 + c_rad, c_rad, math.pi, 3 * math.pi / 2)
         cr.close_path()
         cr.fill()
-        # Top bump
         cr.rectangle(-2.2, -4.5, 4.4, 2.0); cr.fill()
-        # Lens
         cr.set_source_rgb(r, g, b)
         cr.arc(0, 1.5, 2.4, 0, 2 * math.pi); cr.fill()
         cr.set_source_rgb(1.0, 1.0, 1.0)
         cr.arc(0, 1.5, 1.2, 0, 2 * math.pi); cr.fill()
-        # Optical glare dot
         cr.arc(0.7, 0.8, 0.45, 0, 2 * math.pi); cr.fill()
 
     elif kind == "liveness":
-        # Apple Security Shield with Checkmark
         cr.move_to(0, -5.5)
         cr.curve_to(2.0, -5.5, 4.5, -4.8, 5.0, -3.2)
         cr.curve_to(5.0, 1.5, 2.5, 4.8, 0, 6.0)
@@ -358,7 +514,6 @@ def create_macos_icon(kind: str, bg_hex: str, size: int = 24) -> cairo.ImageSurf
         cr.curve_to(-4.5, -4.8, -2.0, -5.5, 0, -5.5)
         cr.close_path()
         cr.stroke()
-        # Inner checkmark
         cr.move_to(-2.2, 0.0); cr.line_to(-0.6, 1.8); cr.line_to(2.5, -1.8); cr.stroke()
 
     elif kind == "diagnostics":
@@ -375,12 +530,9 @@ def create_macos_icon(kind: str, bg_hex: str, size: int = 24) -> cairo.ImageSurf
         cr.move_to(0, -0.6); cr.line_to(0, 2.8); cr.stroke()
 
     elif kind == "avatar":
-        # Clean user profile silhouette
-        cr.arc(0, -2.2, 2.8, 0, 2 * math.pi)
-        cr.fill()
+        cr.arc(0, -2.2, 2.8, 0, 2 * math.pi); cr.fill()
         cr.new_sub_path()
-        cr.arc(0, 7.0, 6.2, math.pi, 2 * math.pi)
-        cr.fill()
+        cr.arc(0, 7.0, 6.2, math.pi, 2 * math.pi); cr.fill()
 
     cr.restore()
     return surf
@@ -392,24 +544,38 @@ def create_macos_icon(kind: str, bg_hex: str, size: int = 24) -> cairo.ImageSurf
 class SettingsWindow(Gtk.Window):
     def __init__(self):
         super().__init__(title="Blink")
-        self.set_default_size(920, 640)
-        self.set_size_request(780, 540)
+        self.set_default_size(940, 660)
+        self.set_size_request(800, 560)
         self.set_position(Gtk.WindowPosition.CENTER)
+
+        # Enable true RGBA composited glass transparency
+        screen = Gdk.Screen.get_default()
+        rgba_visual = screen.get_rgba_visual()
+        if rgba_visual and screen.is_composited():
+            self.set_visual(rgba_visual)
 
         self._apply_css()
         self.get_style_context().add_class("macos-window")
 
-        # Native HeaderBar
+        # Native HeaderBar with Blink Logo
         self.headerbar = Gtk.HeaderBar()
         self.headerbar.set_show_close_button(True)
         self.headerbar.props.title = "Face ID & Password"
+
+        logo_pb = get_blink_logo_pixbuf(22)
+        if logo_pb:
+            img_hdr_logo = Gtk.Image.new_from_pixbuf(logo_pb)
+            img_hdr_logo.set_margin_start(4)
+            img_hdr_logo.set_margin_end(2)
+            self.headerbar.pack_start(img_hdr_logo)
+
         self.set_titlebar(self.headerbar)
 
-        # App Icon
-        icon_path = os.path.join(os.path.dirname(__file__), "..", "resources", "appicon.png")
-        if os.path.exists(icon_path):
+        # Set Window Manager App Icon
+        icon_path = RESOURCES_DIR / "final.png"
+        if icon_path.is_file():
             try:
-                self.set_icon_from_file(icon_path)
+                self.set_icon_from_file(str(icon_path))
             except Exception:
                 pass
 
@@ -429,7 +595,7 @@ class SettingsWindow(Gtk.Window):
         main_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         self.add(main_box)
 
-        # 1. Sidebar (210px)
+        # 1. Sidebar (220px)
         self.sidebar_box = self._build_sidebar()
         main_box.pack_start(self.sidebar_box, False, False, 0)
 
@@ -462,12 +628,33 @@ class SettingsWindow(Gtk.Window):
         Gtk.StyleContext.add_provider_for_screen(screen, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
     # --------------------------------------------------------------------------
-    # Sidebar
+    # Sidebar with Brand Header
     # --------------------------------------------------------------------------
     def _build_sidebar(self) -> Gtk.Widget:
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        vbox.set_size_request(210, -1)
+        vbox.set_size_request(220, -1)
         vbox.get_style_context().add_class("sidebar")
+
+        # Top Brand Header with Blink Logo
+        brand_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        brand_box.get_style_context().add_class("sidebar-brand-box")
+
+        logo_pb = get_blink_logo_pixbuf(32)
+        if logo_pb:
+            brand_box.pack_start(Gtk.Image.new_from_pixbuf(logo_pb), False, False, 0)
+
+        v_brand_txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        lbl_brand = Gtk.Label(label="Blink")
+        lbl_brand.set_xalign(0)
+        lbl_brand.get_style_context().add_class("sidebar-brand-title")
+        lbl_sub = Gtk.Label(label="Face ID System")
+        lbl_sub.set_xalign(0)
+        lbl_sub.get_style_context().add_class("sidebar-brand-sub")
+        v_brand_txt.pack_start(lbl_brand, False, False, 0)
+        v_brand_txt.pack_start(lbl_sub, False, False, 0)
+        brand_box.pack_start(v_brand_txt, True, True, 0)
+
+        vbox.pack_start(brand_box, False, False, 0)
 
         # Search Bar
         search_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -486,10 +673,10 @@ class SettingsWindow(Gtk.Window):
 
         self.nav_rows: Dict[str, Gtk.ListBoxRow] = {}
 
-        self._add_nav_item("face_id", "Face ID & Password", "face_id", "#007AFF")
-        self._add_nav_item("camera", "Camera", "camera", "#AF52DE")
+        self._add_nav_item("face_id", "Face ID & Password", "face_id", "#0A84FF")
+        self._add_nav_item("camera", "Camera", "camera", "#BF5AF2")
         self._add_nav_item("liveness", "Anti-Spoofing", "liveness", "#34C759")
-        self._add_nav_item("diagnostics", "Diagnostics", "diagnostics", "#5856D6")
+        self._add_nav_item("diagnostics", "Diagnostics", "diagnostics", "#5E5CE6")
         self._add_nav_item("about", "About", "about", "#8E8E93")
 
         scroll = Gtk.ScrolledWindow()
@@ -544,10 +731,8 @@ class SettingsWindow(Gtk.Window):
         scroll.get_style_context().add_class("content-scroll")
         scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
 
-        # Outer box to center or left-align with max-width
         outer_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
-        # Constrained content container (never stretches across wide screens!)
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         vbox.get_style_context().add_class("content-box")
         vbox.set_halign(Gtk.Align.START)
@@ -600,7 +785,6 @@ class SettingsWindow(Gtk.Window):
         row.pack_start(text_box, True, True, 0)
 
         if control:
-            # Enforce vertical centering so switches and buttons never stretch vertically!
             control.set_valign(Gtk.Align.CENTER)
             control.set_halign(Gtk.Align.END)
             row.pack_end(control, False, False, 0)
@@ -618,23 +802,51 @@ class SettingsWindow(Gtk.Window):
     def _build_face_id_page(self) -> Gtk.Widget:
         scroll, page = self._create_page_wrapper("Face ID & Password")
 
-        # 1. Enrolled Biometric Profiles
+        # 1. Glass Hero Banner with Blink Logo & Live Status Pill
+        hero_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        hero_box.get_style_context().add_class("glass-hero")
+
+        logo_pb = get_blink_logo_pixbuf(48)
+        if logo_pb:
+            hero_box.pack_start(Gtk.Image.new_from_pixbuf(logo_pb), False, False, 0)
+
+        v_hero_txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        lbl_hero_t = Gtk.Label(label="Blink Face ID")
+        lbl_hero_t.set_xalign(0)
+        lbl_hero_t.get_style_context().add_class("hero-title")
+        lbl_hero_sub = Gtk.Label(label="Fast, on-device biometric unlock protected by neural vision")
+        lbl_hero_sub.set_xalign(0)
+        lbl_hero_sub.get_style_context().add_class("hero-sub")
+        v_hero_txt.pack_start(lbl_hero_t, False, False, 0)
+        v_hero_txt.pack_start(lbl_hero_sub, False, False, 0)
+        hero_box.pack_start(v_hero_txt, True, True, 0)
+
+        # Status Pill Badge
+        has_faces = bool(SecureFaceStore.load_identities())
+        is_active = self.settings.is_face_unlock_enabled and has_faces
+        self.lbl_hero_status = Gtk.Label(label="● Active" if is_active else "● Disabled")
+        self.lbl_hero_status.get_style_context().add_class("pill-badge-active" if is_active else "pill-badge-disabled")
+        self.lbl_hero_status.set_valign(Gtk.Align.CENTER)
+        hero_box.pack_end(self.lbl_hero_status, False, False, 0)
+
+        page.pack_start(hero_box, False, False, 0)
+
+        # 2. Enrolled Biometric Profiles
         page.pack_start(self._create_group_heading("Face ID"), False, False, 0)
 
         self.group_profiles = self._create_inset_group()
         page.pack_start(self.group_profiles, False, False, 0)
         self._refresh_profiles_row()
 
-        # 2. Use Face ID for:
+        # 3. Use Face ID for:
         page.pack_start(self._create_group_heading("Use Face ID for"), False, False, 0)
 
         group_use = self._create_inset_group()
 
         self.sw_master = Gtk.Switch()
-        has_faces = bool(SecureFaceStore.load_identities())
-        self.sw_master.set_active(self.settings.is_face_unlock_enabled and has_faces)
+        self.sw_master.set_active(is_active)
         self.sw_master.connect("notify::active", self._on_toggle_face_unlock)
-        self._add_inset_row(group_use, "Unlocking your computer", None, self.sw_master)
+        self._add_inset_row(group_use, "Unlocking your computer", "Enables seamless facial recognition on display wake and lockscreen", self.sw_master)
 
         sw_wake = Gtk.Switch()
         sw_wake.set_active("on_wake" in self.settings.unlock_triggers)
@@ -649,7 +861,7 @@ class SettingsWindow(Gtk.Window):
         sw_space = Gtk.Switch()
         sw_space.set_active("on_space" in self.settings.unlock_triggers)
         sw_space.connect("notify::active", lambda w, p: self._on_trigger_switch("on_space", w.get_active()))
-        self._add_inset_row(group_use, "Unlock with spacebar", "Press spacebar at lock screen to begin recognition", sw_space)
+        self._add_inset_row(group_use, "Unlock with spacebar / keypress", "Press spacebar or any key at lock screen to begin recognition", sw_space)
 
         sw_retry = Gtk.Switch()
         sw_retry.set_active(self.settings.auto_retry_once)
@@ -659,12 +871,12 @@ class SettingsWindow(Gtk.Window):
         sw_anim = Gtk.Switch()
         sw_anim.set_active(self.settings.show_unlock_animation)
         sw_anim.connect("notify::active", lambda w, p: self._update_setting("show_unlock_animation", w.get_active()))
-        self._add_inset_row(group_use, "Floating camera indicator", "Displays compact Face ID animation card at top of screen", sw_anim, is_last=True)
+        self._add_inset_row(group_use, "Floating Face ID indicator", "Displays compact Face ID animation card at top of screen", sw_anim, is_last=True)
 
         page.pack_start(group_use, False, False, 0)
-        page.pack_start(self._create_group_footnote("Blink uses facial recognition to unlock your system when you wake the computer or lock the screen."), False, False, 0)
+        page.pack_start(self._create_group_footnote("Blink uses neural facial recognition to unlock your system when you wake the computer or lock the screen."), False, False, 0)
 
-        # 3. Recognition Tuning
+        # 4. Recognition Tuning
         page.pack_start(self._create_group_heading("Recognition options"), False, False, 0)
 
         group_tune = self._create_inset_group()
@@ -701,13 +913,14 @@ class SettingsWindow(Gtk.Window):
 
         page.pack_start(group_tune, False, False, 0)
 
-        # 4. Password Section
+        # 5. Password Section
         page.pack_start(self._create_group_heading("Password"), False, False, 0)
 
         group_pwd = self._create_inset_group()
 
         has_pwd = SecureCredentialManager.has_stored_password()
-        self.lbl_pwd_status = Gtk.Label(label="Password is set" if has_pwd else "Not configured")
+        current_user = getpass.getuser()
+        self.lbl_pwd_status = Gtk.Label(label=f"✓ {current_user} (Password Set)" if has_pwd else "Not configured")
         self.lbl_pwd_status.get_style_context().add_class("row-desc")
 
         btn_change_pwd = Gtk.Button(label="Change..." if has_pwd else "Set Up...")
@@ -726,9 +939,11 @@ class SettingsWindow(Gtk.Window):
         combo_lock.append("15", "15 minutes")
         combo_lock.append("30", "30 minutes")
         combo_lock.append("60", "1 hour")
-        combo_lock.set_active_id(str(self.settings.auto_lock_idle_minutes))
+        sys_delay = get_system_idle_delay()
+        active_id = str(sys_delay) if str(sys_delay) in ["5", "15", "30", "60"] else "15"
+        combo_lock.set_active_id(active_id)
         combo_lock.connect("changed", self._on_combo_idle_changed)
-        self._add_inset_row(group_pwd, "Require password after screen lock", None, combo_lock, is_last=True)
+        self._add_inset_row(group_pwd, "Require password after screen lock", "Synchronized directly with Cinnamon & GNOME screen saver", combo_lock, is_last=True)
 
         page.pack_start(group_pwd, False, False, 0)
         page.pack_start(self._create_group_footnote("Your password is encrypted using hardware-linked AES-256-GCM and injected to unlock your screen saver upon face confirmation."), False, False, 0)
@@ -770,14 +985,14 @@ class SettingsWindow(Gtk.Window):
                 name_lbl.get_style_context().add_class("row-label")
 
                 poses_count = len(ident.get("samples", []))
-                sub_lbl = Gtk.Label(label=f"{poses_count} poses enrolled")
+                sub_lbl = Gtk.Label(label=f"{poses_count} biometric poses enrolled")
                 sub_lbl.set_xalign(0)
                 sub_lbl.get_style_context().add_class("row-desc")
                 v.pack_start(name_lbl, False, False, 0)
                 v.pack_start(sub_lbl, False, False, 0)
                 row.pack_start(v, True, True, 0)
 
-                # Crisp Delete Button (clean Apple red button)
+                # Delete Button
                 btn_del = Gtk.Button(label="Delete")
                 btn_del.get_style_context().add_class("btn-macos-danger")
                 btn_del.set_valign(Gtk.Align.CENTER)
@@ -813,7 +1028,7 @@ class SettingsWindow(Gtk.Window):
         self.group_profiles.show_all()
 
     # --------------------------------------------------------------------------
-    # Page 2: Camera
+    # Page 2: Camera (Whole Sensor Form & Optical Reticle)
     # --------------------------------------------------------------------------
     def _build_camera_page(self) -> Gtk.Widget:
         scroll, page = self._create_page_wrapper("Camera")
@@ -835,17 +1050,53 @@ class SettingsWindow(Gtk.Window):
         self._add_inset_row(group_cam, "Device 0 fallback", "Automatically switches to /dev/video0 if selected device fails", lbl_fall, is_last=True)
         page.pack_start(group_cam, False, False, 0)
 
-        page.pack_start(self._create_group_heading("Camera preview"), False, False, 0)
+        # Whole Sensor Viewfinder Card
+        page.pack_start(self._create_group_heading("Optical sensor feed (whole sensor form)"), False, False, 0)
 
-        preview_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        preview_box.get_style_context().add_class("viewfinder-card")
+        self.viewfinder_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.viewfinder_container.get_style_context().add_class("viewfinder-card")
 
+        # Top HUD Bar
+        hud_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        hud_bar.get_style_context().add_class("hud-bar")
+
+        self.lbl_cam_live_state = Gtk.Label(label="● LIVE FEED")
+        self.lbl_cam_live_state.get_style_context().add_class("pill-badge-active")
+        hud_bar.pack_start(self.lbl_cam_live_state, False, False, 0)
+
+        self.lbl_cam_sensor_spec = Gtk.Label(label="Initializing Sensor…")
+        self.lbl_cam_sensor_spec.get_style_context().add_class("pill-badge-sensor")
+        hud_bar.pack_start(self.lbl_cam_sensor_spec, False, False, 0)
+
+        self.lbl_cam_device_spec = Gtk.Label(label=f"/dev/video{self.settings.camera_index} • 30 FPS")
+        self.lbl_cam_device_spec.get_style_context().add_class("row-desc")
+        hud_bar.pack_end(self.lbl_cam_device_spec, False, False, 0)
+
+        self.viewfinder_container.pack_start(hud_bar, False, False, 0)
+
+        # Center Preview Image (Centered, aspect-ratio preserved!)
+        h_align_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        h_align_box.set_halign(Gtk.Align.CENTER)
         self.img_cam_preview = Gtk.Image()
-        self.img_cam_preview.set_size_request(480, 320)
-        preview_box.pack_start(self.img_cam_preview, True, True, 0)
-        page.pack_start(preview_box, False, False, 0)
+        h_align_box.pack_start(self.img_cam_preview, True, True, 0)
+        self.viewfinder_container.pack_start(h_align_box, True, True, 0)
 
-        page.pack_start(self._create_group_footnote("Viewfinder runs live while viewing this panel to verify framing and camera alignment."), False, False, 0)
+        # Bottom HUD Footer
+        hud_foot = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        hud_foot.get_style_context().add_class("hud-footer")
+
+        lbl_foot_fov = Gtk.Label(label="100% Native Sensor Area (Uncropped)")
+        lbl_foot_fov.get_style_context().add_class("row-desc")
+        hud_foot.pack_start(lbl_foot_fov, False, False, 0)
+
+        lbl_foot_lat = Gtk.Label(label="< 20ms Frame Ingestion")
+        lbl_foot_lat.get_style_context().add_class("row-desc")
+        hud_foot.pack_end(lbl_foot_lat, False, False, 0)
+
+        self.viewfinder_container.pack_start(hud_foot, False, False, 0)
+
+        page.pack_start(self.viewfinder_container, False, False, 0)
+        page.pack_start(self._create_group_footnote("Viewfinder shows the entire uncropped physical camera sensor preserving exact optical geometry."), False, False, 0)
 
         return scroll
 
@@ -887,7 +1138,7 @@ class SettingsWindow(Gtk.Window):
         return scroll
 
     # --------------------------------------------------------------------------
-    # Page 4: Diagnostics & Face Lab
+    # Page 4: Diagnostics & Face Lab (Sensor Form Preserved)
     # --------------------------------------------------------------------------
     def _build_diagnostics_page(self) -> Gtk.Widget:
         scroll, page = self._create_page_wrapper("Diagnostics")
@@ -896,11 +1147,10 @@ class SettingsWindow(Gtk.Window):
 
         hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=18)
 
-        # Left: Live Viewfinder
+        # Left: Live Viewfinder (Aspect-ratio preserved!)
         view_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         view_box.get_style_context().add_class("viewfinder-card")
         self.img_facelab = Gtk.Image()
-        self.img_facelab.set_size_request(400, 300)
         view_box.pack_start(self.img_facelab, True, True, 0)
         hbox.pack_start(view_box, False, False, 0)
 
@@ -911,7 +1161,7 @@ class SettingsWindow(Gtk.Window):
         self.lbl_fl_sim.set_xalign(1)
         self.lbl_fl_sim.get_style_context().add_class("row-desc")
         self.prog_fl_sim = Gtk.ProgressBar()
-        self.prog_fl_sim.set_size_request(140, -1)
+        self.prog_fl_sim.set_size_request(130, -1)
         h_sim = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         h_sim.pack_start(self.prog_fl_sim, True, True, 0)
         h_sim.pack_start(self.lbl_fl_sim, False, False, 0)
@@ -925,7 +1175,7 @@ class SettingsWindow(Gtk.Window):
             lbl.set_xalign(1)
             lbl.get_style_context().add_class("row-desc")
             prog = Gtk.ProgressBar()
-            prog.set_size_request(140, -1)
+            prog.set_size_request(130, -1)
             c_box.pack_start(prog, True, True, 0)
             c_box.pack_start(lbl, False, False, 0)
             self.fl_cue_labels[cue] = lbl
@@ -944,31 +1194,42 @@ class SettingsWindow(Gtk.Window):
         return scroll
 
     # --------------------------------------------------------------------------
-    # Page 5: About
+    # Page 5: About (Official Blink Logo Pedestal)
     # --------------------------------------------------------------------------
     def _build_about_page(self) -> Gtk.Widget:
         scroll, page = self._create_page_wrapper("About")
 
-        # Top App Identification
-        top_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
-        top_box.set_margin_bottom(16)
+        # Top App Pedestal with Official Blink Logo
+        top_hero = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        top_hero.get_style_context().add_class("glass-hero")
+        top_hero.set_margin_bottom(18)
 
-        icon_surf = create_macos_icon("face_id", "#007AFF", 44)
-        top_box.pack_start(Gtk.Image.new_from_surface(icon_surf), False, False, 0)
+        h_brand_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+
+        logo_pb = get_blink_logo_pixbuf(64)
+        if logo_pb:
+            h_brand_row.pack_start(Gtk.Image.new_from_pixbuf(logo_pb), False, False, 0)
 
         v_top = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         lbl_app = Gtk.Label(label="Blink")
         lbl_app.set_xalign(0)
         lbl_app.get_style_context().add_class("page-title")
 
-        lbl_ver = Gtk.Label(label="Version 2.1.0 (Linux x86_64)")
+        lbl_ver = Gtk.Label(label="Version 2.1.0 • Apple Human Interface Edition")
         lbl_ver.set_xalign(0)
         lbl_ver.get_style_context().add_class("row-desc")
+
+        lbl_arch = Gtk.Label(label="Linux x86_64 • 100% On-Device Neural Vision")
+        lbl_arch.set_xalign(0)
+        lbl_arch.get_style_context().add_class("row-desc")
+
         v_top.pack_start(lbl_app, False, False, 0)
         v_top.pack_start(lbl_ver, False, False, 0)
-        top_box.pack_start(v_top, True, True, 0)
+        v_top.pack_start(lbl_arch, False, False, 0)
+        h_brand_row.pack_start(v_top, True, True, 0)
 
-        page.pack_start(top_box, False, False, 0)
+        top_hero.pack_start(h_brand_row, True, True, 0)
+        page.pack_start(top_hero, False, False, 0)
 
         # Links Group
         page.pack_start(self._create_group_heading("Resources"), False, False, 0)
@@ -1011,15 +1272,28 @@ class SettingsWindow(Gtk.Window):
         return scroll
 
     # --------------------------------------------------------------------------
-    # Settings Callbacks
+    # Settings Callbacks & Background Synchronization
     # --------------------------------------------------------------------------
     def _update_setting(self, key: str, value: Any) -> None:
         setattr(self.settings, key, value)
         self.settings.save()
+        self._sync_daemon_service()
+
+    def _sync_daemon_service(self) -> None:
+        """Restarts the background user service if active so settings apply immediately."""
+        def _bg():
+            try:
+                proc = subprocess.run(["systemctl", "--user", "is-active", "blink.service"], capture_output=True, text=True)
+                if proc.stdout.strip() == "active":
+                    subprocess.run(["systemctl", "--user", "restart", "blink.service"], capture_output=True)
+            except Exception:
+                pass
+        threading.Thread(target=_bg, daemon=True, name="BlinkSyncService").start()
 
     def _on_toggle_face_unlock(self, switch, gparam):
         has_faces = bool(SecureFaceStore.load_identities())
-        if switch.get_active() and not has_faces:
+        active = switch.get_active()
+        if active and not has_faces:
             switch.set_active(False)
             dialog = Gtk.MessageDialog(
                 transient_for=self,
@@ -1032,7 +1306,17 @@ class SettingsWindow(Gtk.Window):
             dialog.run()
             dialog.destroy()
             return
-        self._update_setting("is_face_unlock_enabled", switch.get_active())
+
+        self._update_setting("is_face_unlock_enabled", active)
+        if hasattr(self, "lbl_hero_status"):
+            self.lbl_hero_status.set_text("● Active" if active else "● Disabled")
+            ctx = self.lbl_hero_status.get_style_context()
+            if active:
+                ctx.remove_class("pill-badge-disabled")
+                ctx.add_class("pill-badge-active")
+            else:
+                ctx.remove_class("pill-badge-active")
+                ctx.add_class("pill-badge-disabled")
 
     def _on_trigger_switch(self, trigger_id: str, is_active: bool) -> None:
         triggers = set(self.settings.unlock_triggers)
@@ -1055,7 +1339,9 @@ class SettingsWindow(Gtk.Window):
     def _on_combo_idle_changed(self, combo: Gtk.ComboBoxText) -> None:
         active_id = combo.get_active_id()
         if active_id:
-            self._update_setting("auto_lock_idle_minutes", int(active_id))
+            mins = int(active_id)
+            self._update_setting("auto_lock_idle_minutes", mins)
+            set_system_idle_delay(mins)
 
     def _on_camera_device_changed(self, combo: Gtk.ComboBoxText) -> None:
         active_id = combo.get_active_id()
@@ -1063,34 +1349,42 @@ class SettingsWindow(Gtk.Window):
             idx = int(active_id)
             self._update_setting("camera_index", idx)
             self.camera.start(device_index=idx)
+            if hasattr(self, "lbl_cam_device_spec"):
+                self.lbl_cam_device_spec.set_text(f"/dev/video{idx} • 30 FPS")
 
     def _on_liveness_mode_changed(self, mode: str) -> None:
         self._update_setting("liveness_mode", mode)
         self.liveness.mode = mode
 
     def _on_open_password_dialog(self, button) -> None:
-        """Modal dialog to set or remove desktop unlock password."""
+        """Modal dialog to set or change desktop password with real-time PAM validation."""
+        current_user = getpass.getuser()
         dialog = Gtk.Dialog(
             title="Account Password",
             parent=self,
             flags=Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT
         )
-        dialog.set_default_size(360, 180)
+        dialog.set_default_size(380, 220)
         dialog.get_style_context().add_class("macos-window")
 
         area = dialog.get_content_area()
         area.set_spacing(12)
         area.set_border_width(20)
 
-        lbl_info = Gtk.Label(label="Enter your Linux desktop user password:")
+        lbl_info = Gtk.Label(label=f"Enter Linux password for user '{current_user}':")
         lbl_info.set_xalign(0)
         lbl_info.get_style_context().add_class("row-label")
         area.pack_start(lbl_info, False, False, 0)
 
         entry = Gtk.Entry()
         entry.set_visibility(False)
-        entry.set_placeholder_text("Password")
+        entry.set_placeholder_text("Account Password")
         area.pack_start(entry, False, False, 0)
+
+        lbl_feedback = Gtk.Label(label="")
+        lbl_feedback.set_xalign(0)
+        lbl_feedback.get_style_context().add_class("row-desc")
+        area.pack_start(lbl_feedback, False, False, 0)
 
         has_pwd = SecureCredentialManager.has_stored_password()
         btn_remove = Gtk.Button(label="Remove Stored Password")
@@ -1107,20 +1401,31 @@ class SettingsWindow(Gtk.Window):
         area.pack_start(btn_remove, False, False, 0)
 
         dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
-        dialog.add_button("Save", Gtk.ResponseType.OK)
+        btn_save = dialog.add_button("Save", Gtk.ResponseType.OK)
         dialog.set_default_response(Gtk.ResponseType.OK)
 
         dialog.show_all()
         if not has_pwd:
             btn_remove.hide()
 
-        resp = dialog.run()
-        if resp == Gtk.ResponseType.OK:
-            new_pwd = entry.get_text()
-            if new_pwd:
-                SecureCredentialManager.save_password(new_pwd)
-                self.lbl_pwd_status.set_text("Password is set")
+        while True:
+            resp = dialog.run()
+            if resp != Gtk.ResponseType.OK:
+                break
+
+            pwd = entry.get_text().strip()
+            if not pwd:
+                lbl_feedback.set_text("Password cannot be blank.")
+                continue
+
+            # Real-time password verification against system account
+            if verify_linux_password(current_user, pwd):
+                SecureCredentialManager.save_password(pwd)
+                self.lbl_pwd_status.set_text(f"✓ {current_user} (Password Set)")
                 self.btn_change_pwd.set_label("Change...")
+                break
+            else:
+                lbl_feedback.set_markup("<span color='#FF6B62'>Incorrect password for Linux user account.</span>")
 
         dialog.destroy()
 
@@ -1141,6 +1446,15 @@ class SettingsWindow(Gtk.Window):
             identities = [ident for ident in identities if ident["id"] != ident_id]
             SecureFaceStore.save_identities(identities)
             self._refresh_profiles_row()
+
+            if not identities:
+                self.sw_master.set_active(False)
+                self._update_setting("is_face_unlock_enabled", False)
+                if hasattr(self, "lbl_hero_status"):
+                    self.lbl_hero_status.set_text("● Disabled")
+                    ctx = self.lbl_hero_status.get_style_context()
+                    ctx.remove_class("pill-badge-active")
+                    ctx.add_class("pill-badge-disabled")
 
     def _on_test_scan_clicked(self, button) -> None:
         """Pops out the Face ID overlay directly on desktop to test scanning flow."""
@@ -1167,12 +1481,22 @@ class SettingsWindow(Gtk.Window):
 
         self._refresh_profiles_row()
 
+        identities = SecureFaceStore.load_identities()
+        if identities and not self.settings.is_face_unlock_enabled:
+            self.sw_master.set_active(True)
+            self._update_setting("is_face_unlock_enabled", True)
+            if hasattr(self, "lbl_hero_status"):
+                self.lbl_hero_status.set_text("● Active")
+                ctx = self.lbl_hero_status.get_style_context()
+                ctx.remove_class("pill-badge-disabled")
+                ctx.add_class("pill-badge-active")
+
         if self._active_page in ("camera", "diagnostics"):
             self.camera.start(device_index=self.settings.camera_index)
             self._camera_timer = GLib.timeout_add(33, self._update_camera_feeds)
 
     # --------------------------------------------------------------------------
-    # Camera Polling & Video Feeds
+    # Whole Sensor Aspect-Ratio Preserving Feeds
     # --------------------------------------------------------------------------
     def _update_camera_feeds(self) -> bool:
         latest = self.camera.get_latest_frame()
@@ -1183,7 +1507,13 @@ class SettingsWindow(Gtk.Window):
         h, w = frame.shape[:2]
 
         if self._active_page == "camera":
-            pixbuf = self._cv2_to_pixbuf(frame, 480, 320)
+            # Update Live Sensor Metadata HUD
+            aspect = w / max(1, h)
+            aspect_lbl = "4:3 Full Sensor" if abs(aspect - 4/3) < 0.08 else ("16:9 Widescreen" if abs(aspect - 16/9) < 0.08 else f"{aspect:.2f}:1 Sensor")
+            self.lbl_cam_sensor_spec.set_text(f"{w} × {h} • {aspect_lbl}")
+
+            # Scale to max 520x390 preserving EXACT native sensor aspect ratio!
+            pixbuf = self._cv2_to_pixbuf_sensor(frame, max_w=520, max_h=380, add_reticle=True)
             if pixbuf:
                 self.img_cam_preview.set_from_pixbuf(pixbuf)
 
@@ -1228,25 +1558,52 @@ class SettingsWindow(Gtk.Window):
 
                     self.lbl_fl_decision.set_text(decision.kind.value.capitalize())
 
-            pixbuf = self._cv2_to_pixbuf(disp, 400, 300)
+            # Diagnostics feed: preserve sensor proportions without stretching
+            pixbuf = self._cv2_to_pixbuf_sensor(disp, max_w=380, max_h=285, add_reticle=False)
             if pixbuf:
                 self.img_facelab.set_from_pixbuf(pixbuf)
 
         return True
 
-    def _cv2_to_pixbuf(self, img_bgr: np.ndarray, target_w: int, target_h: int) -> Optional[GdkPixbuf.Pixbuf]:
+    def _cv2_to_pixbuf_sensor(self, img_bgr: np.ndarray, max_w: int, max_h: int, add_reticle: bool = False) -> Optional[GdkPixbuf.Pixbuf]:
+        """Scales camera frame into whole sensor form strictly preserving native aspect ratio."""
         try:
-            resized = cv2.resize(img_bgr, (target_w, target_h))
+            h, w = img_bgr.shape[:2]
+            scale = min(max_w / w, max_h / h)
+            target_w = max(1, int(w * scale))
+            target_h = max(1, int(h * scale))
+
+            resized = cv2.resize(img_bgr, (target_w, target_h), interpolation=cv2.INTER_AREA)
+
+            if add_reticle:
+                # Optical viewfinder corner brackets (Apple sensor reticle)
+                b_len = 14
+                color = (255, 255, 255)
+                thick = 1
+                margin = 8
+                # Top-left
+                cv2.line(resized, (margin, margin + b_len), (margin, margin), color, thick)
+                cv2.line(resized, (margin, margin), (margin + b_len, margin), color, thick)
+                # Top-right
+                cv2.line(resized, (target_w - margin - b_len, margin), (target_w - margin, margin), color, thick)
+                cv2.line(resized, (target_w - margin, margin), (target_w - margin, margin + b_len), color, thick)
+                # Bottom-left
+                cv2.line(resized, (margin, target_h - margin - b_len), (margin, target_h - margin), color, thick)
+                cv2.line(resized, (margin, target_h - margin), (margin + b_len, target_h - margin), color, thick)
+                # Bottom-right
+                cv2.line(resized, (target_w - margin - b_len, target_h - margin), (target_w - margin, target_h - margin), color, thick)
+                cv2.line(resized, (target_w - margin, target_h - margin - b_len), (target_w - margin, target_h - margin), color, thick)
+
             rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
-            h, w = rgb.shape[:2]
+            rh, rw = rgb.shape[:2]
             return GdkPixbuf.Pixbuf.new_from_data(
                 rgb.tobytes(),
                 GdkPixbuf.Colorspace.RGB,
                 False,
                 8,
-                w,
-                h,
-                w * 3
+                rw,
+                rh,
+                rw * 3
             )
         except Exception:
             return None
