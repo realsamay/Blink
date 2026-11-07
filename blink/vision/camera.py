@@ -44,7 +44,7 @@ class CameraManager:
 
     @staticmethod
     def list_devices() -> List[int]:
-        """Enumerates available video capture devices on Linux and Windows."""
+        """Enumerates available video capture devices on Linux and Windows without disrupting active streams."""
         devices = []
         if IS_WINDOWS:
             # Probe indices 0..3 using DirectShow for fast check
@@ -58,20 +58,60 @@ class CameraManager:
                     continue
             return devices if devices else [0]
 
-        # Linux: probe /dev/video*
-        for dev in sorted(glob.glob("/dev/video*")):
-            try:
-                idx = int(dev.replace("/dev/video", ""))
-                # Quick probe checking that it actually streams video frames
-                cap = cv2.VideoCapture(idx)
-                if cap.isOpened():
-                    ret, _ = cap.read()
-                    if ret:
+        # Linux: non-disruptive check using V4L2 capability query without allocation
+        try:
+            import fcntl
+            import struct
+            for dev in sorted(glob.glob("/dev/video*")):
+                try:
+                    idx = int(dev.replace("/dev/video", ""))
+                    fd = os.open(dev, os.O_RDWR | os.O_NONBLOCK)
+                    buf = bytearray(104)
+                    fcntl.ioctl(fd, 0x80685600, buf)
+                    os.close(fd)
+                    _, dev_caps = struct.unpack_from("II", buf, 80)
+                    if dev_caps & 0x00000001:  # V4L2_CAP_VIDEO_CAPTURE
                         devices.append(idx)
-                    cap.release()
-            except Exception:
-                continue
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
         return devices if devices else [0]
+
+    def reset(self) -> bool:
+        """Safely resets and reopens the camera device to clear any driver stalls."""
+        with self._lock:
+            self._current_frame = None
+        return self._reopen_capture()
+
+    def _reopen_capture(self) -> bool:
+        try:
+            if self._cap is not None:
+                self._cap.release()
+                self._cap = None
+            time.sleep(0.08)
+            available = self.list_devices()
+            if available and self.device_index not in available:
+                self.device_index = available[0]
+            backend = cv2.CAP_DSHOW if IS_WINDOWS else cv2.CAP_ANY
+            self._cap = cv2.VideoCapture(self.device_index, backend)
+            if self._cap.isOpened():
+                self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                self._cap.set(cv2.CAP_PROP_FPS, 30)
+                return True
+            elif self.device_index != 0:
+                self.device_index = 0
+                self._cap = cv2.VideoCapture(0, backend)
+                if self._cap.isOpened():
+                    self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                    self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                    self._cap.set(cv2.CAP_PROP_FPS, 30)
+                    return True
+        except Exception as e:
+            print(f"[CameraManager] Error resetting camera: {e}")
+        return False
 
     def start(self, device_index: Optional[int] = None) -> bool:
         if device_index is not None:
@@ -81,6 +121,10 @@ class CameraManager:
             return True
 
         self.error_message = None
+        available = self.list_devices()
+        if available and self.device_index not in available:
+            self.device_index = available[0]
+
         backend = cv2.CAP_DSHOW if IS_WINDOWS else cv2.CAP_ANY
         self._cap = cv2.VideoCapture(self.device_index, backend)
         if not self._cap.isOpened():
@@ -124,12 +168,26 @@ class CameraManager:
             return (self._frame_id, self._current_frame.copy())
 
     def _capture_loop(self) -> None:
-        while self._running and self._cap is not None:
-            ret, frame = self._cap.read()
+        consecutive_errors = 0
+        while self._running:
+            if self._cap is None or not self._cap.isOpened():
+                time.sleep(0.04)
+                continue
+            try:
+                ret, frame = self._cap.read()
+            except Exception:
+                ret, frame = False, None
+
             if ret and frame is not None:
+                consecutive_errors = 0
                 with self._lock:
                     self._frame_id += 1
                     self._current_frame = frame
             else:
-                time.sleep(0.01)
+                consecutive_errors += 1
+                if consecutive_errors >= 12:
+                    # Auto-recover camera device if driver drops frame buffer
+                    self._reopen_capture()
+                    consecutive_errors = 0
+                time.sleep(0.02)
             time.sleep(0.01)  # Throttle to ~30-40 fps

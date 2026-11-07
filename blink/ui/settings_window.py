@@ -153,6 +153,9 @@ class VisionTelemetryWorker(threading.Thread):
         self._running = False
 
     def run(self) -> None:
+        last_face_seen_time = time.time()
+        last_frame_change_time = time.time()
+
         while self._running:
             try:
                 if not self._running or not self.camera.is_running:
@@ -160,12 +163,35 @@ class VisionTelemetryWorker(threading.Thread):
                     continue
 
                 latest = self.camera.get_latest_frame()
-                if latest is None or latest[0] == self.last_frame_id:
-                    time.sleep(0.012)
+                now = time.time()
+
+                if latest is None:
+                    if now - last_frame_change_time > 0.6:
+                        with self._lock:
+                            self.detected_faces_telemetry = []
+                            self.recognized_identity_ids = {}
+                            self.top_similarity = 0.0
+                            self.top_name = "No Face"
+                    time.sleep(0.02)
                     continue
 
                 frame_id, frame = latest
+                if frame_id == self.last_frame_id:
+                    # Same frame repeating (camera stalled or dropped)
+                    if now - last_frame_change_time > 0.6:
+                        with self._lock:
+                            self.detected_faces_telemetry = []
+                            self.recognized_identity_ids = {}
+                            self.top_similarity = 0.0
+                            self.top_name = "No Face"
+                    if now - last_frame_change_time > 1.2:
+                        self.camera.reset()
+                        last_frame_change_time = now
+                    time.sleep(0.015)
+                    continue
+
                 self.last_frame_id = frame_id
+                last_frame_change_time = now
                 t0 = time.time()
 
                 h, w = frame.shape[:2]
@@ -178,44 +204,53 @@ class VisionTelemetryWorker(threading.Thread):
                 top_sim = 0.0
                 top_name = "No Face"
 
-                for face in faces:
-                    aligned = self.aligner.align(face, frame)
-                    matched_name = None
-                    matched_sim = 0.0
-                    is_match = False
-                    matched_id = None
+                if faces:
+                    last_face_seen_time = now
+                    for face in faces:
+                        aligned = self.aligner.align(face, frame)
+                        matched_name = None
+                        matched_sim = 0.0
+                        is_match = False
+                        matched_id = None
 
-                    if aligned is not None and active_identities:
-                        emb = self.embedder.compute_embedding(aligned)
-                        scored = self.embedder.score_identities(emb, active_identities)
-                        if scored:
-                            best_ident, sim, _ = scored[0]
-                            if sim >= 0.50:  # Biometric match threshold
-                                matched_name = best_ident.get("name", "User")
-                                matched_sim = sim
-                                is_match = True
-                                matched_id = best_ident.get("id")
-                                recognized_ids[matched_id] = (matched_name, matched_sim)
-                                if sim > top_sim:
-                                    top_sim = sim
-                                    top_name = matched_name
-                            else:
-                                matched_name = f"Unknown ({sim:.2f})"
-                                matched_sim = sim
+                        if aligned is not None and active_identities:
+                            emb = self.embedder.compute_embedding(aligned)
+                            scored = self.embedder.score_identities(emb, active_identities)
+                            if scored:
+                                best_ident, sim, _ = scored[0]
+                                if sim >= 0.50:  # Biometric match threshold
+                                    matched_name = best_ident.get("name", "User")
+                                    matched_sim = sim
+                                    is_match = True
+                                    matched_id = best_ident.get("id")
+                                    recognized_ids[matched_id] = (matched_name, matched_sim)
+                                    if sim > top_sim:
+                                        top_sim = sim
+                                        top_name = matched_name
+                                else:
+                                    matched_name = f"Unknown ({sim:.2f})"
+                                    matched_sim = sim
 
-                    faces_telemetry.append({
-                        "bbox": face.bbox,
-                        "name": matched_name or "Unknown Face",
-                        "sim": matched_sim,
-                        "is_match": is_match,
-                        "ident_id": matched_id,
-                        "landmarks_5pt": face.landmarks_5pt,
-                        "landmarks_106pt": face.landmarks_106pt
-                    })
+                        faces_telemetry.append({
+                            "bbox": face.bbox,
+                            "name": matched_name or "Unknown Face",
+                            "sim": matched_sim,
+                            "is_match": is_match,
+                            "ident_id": matched_id,
+                            "landmarks_5pt": face.landmarks_5pt,
+                            "landmarks_106pt": face.landmarks_106pt
+                        })
+                else:
+                    # No faces detected in this frame
+                    if now - last_face_seen_time > 0.35:
+                        recognized_ids = {}
+                        faces_telemetry = []
+                        top_sim = 0.0
+                        top_name = "No Face"
 
                 # Liveness evaluation on dominant face
                 cues_data = {}
-                verdict = "Ready"
+                verdict = "Ready" if not faces else "Analyzing"
                 if faces:
                     dominant = FaceDetector.select_dominant_face(faces, frame_width=w)
                     if dominant:
@@ -228,6 +263,8 @@ class VisionTelemetryWorker(threading.Thread):
                         for cue, state in self.liveness.cue_states.items():
                             thresh = self.liveness.tuning.frames_for(cue)
                             cues_data[cue] = (state.reading.level, state.progress(thresh))
+                else:
+                    self.liveness.reset()
 
                 latency = (time.time() - t0) * 1000.0
 
@@ -721,7 +758,7 @@ class SettingsWindow(Gtk.Window):
         self._apply_css()
         self.get_style_context().add_class("macos-window")
 
-        # Native HeaderBar with Blink Logo
+        # Native HeaderBar with Blink Logo & Quick Actions
         self.headerbar = Gtk.HeaderBar()
         self.headerbar.set_show_close_button(True)
         self.headerbar.props.title = "Face ID & Password"
@@ -732,6 +769,12 @@ class SettingsWindow(Gtk.Window):
             img_hdr_logo.set_margin_start(4)
             img_hdr_logo.set_margin_end(2)
             self.headerbar.pack_start(img_hdr_logo)
+
+        btn_hdr_refresh = Gtk.Button(label="↻ Refresh")
+        btn_hdr_refresh.get_style_context().add_class("btn-macos")
+        btn_hdr_refresh.set_valign(Gtk.Align.CENTER)
+        btn_hdr_refresh.connect("clicked", self._on_manual_refresh)
+        self.headerbar.pack_end(btn_hdr_refresh)
 
         self.set_titlebar(self.headerbar)
 
@@ -800,6 +843,49 @@ class SettingsWindow(Gtk.Window):
         self.camera.start(device_index=self.settings.camera_index)
         self.vision_worker.start_worker()
         self._camera_timer = GLib.timeout_add(33, self._update_camera_feeds)
+
+        # Monitor lock state so Settings releases the camera when screen locks,
+        # giving the background unlock daemon immediate and exclusive camera access!
+        try:
+            from blink.system.lock_monitor import LockMonitor
+            self.lock_monitor = LockMonitor(
+                on_locked=self._on_system_locked,
+                on_unlocked=self._on_system_unlocked,
+            )
+            self.lock_monitor.start()
+        except Exception as e:
+            self.lock_monitor = None
+            print(f"[SettingsWindow] Lock monitor initialization notice: {e}")
+
+    def _on_system_locked(self) -> None:
+        """Screen was locked: immediately release camera so the background unlock daemon can scan without resource contention."""
+        print("[SettingsWindow] Screen locked: releasing camera device for background daemon.")
+        self.vision_worker.stop_worker()
+        self.camera.stop()
+
+    def _on_system_unlocked(self) -> None:
+        """Screen unlocked: resume live viewfinder preview if an optical tab is active."""
+        print("[SettingsWindow] Screen unlocked: resuming live optical view.")
+        def _resume():
+            time.sleep(0.4)
+            if self._active_page in ("face_id", "camera", "diagnostics"):
+                self.camera.start(device_index=self.settings.camera_index)
+                self.vision_worker.start_worker()
+                if self._camera_timer is None:
+                    self._camera_timer = GLib.timeout_add(33, self._update_camera_feeds)
+        GLib.idle_add(_resume)
+
+    def _on_manual_refresh(self, button=None) -> None:
+        """Manually refreshes sensor feeds, clears telemetry caches, and reloads profiles."""
+        print("[SettingsWindow] Manual refresh requested.")
+        with self.vision_worker._lock:
+            self.vision_worker.detected_faces_telemetry = []
+            self.vision_worker.recognized_identity_ids = {}
+            self.vision_worker.top_similarity = 0.0
+            self.vision_worker.top_name = "No Face"
+            self.vision_worker.last_frame_id = -1
+        self._refresh_profiles_row()
+        self.camera.reset()
 
     def _on_realize(self, widget) -> None:
         enable_x11_window_blur(self)
@@ -1013,7 +1099,14 @@ class SettingsWindow(Gtk.Window):
         page.pack_start(hero_box, False, False, 0)
 
         # 2. Enrolled Biometric Profiles with Real-Time Multi-Face Highlighting
-        page.pack_start(self._create_group_heading("Face ID"), False, False, 0)
+        h_faces_head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        h_faces_head.pack_start(self._create_group_heading("Face ID"), True, True, 0)
+        btn_f_refresh = Gtk.Button(label="↻ Refresh")
+        btn_f_refresh.get_style_context().add_class("btn-macos")
+        btn_f_refresh.set_valign(Gtk.Align.CENTER)
+        btn_f_refresh.connect("clicked", self._on_manual_refresh)
+        h_faces_head.pack_end(btn_f_refresh, False, False, 0)
+        page.pack_start(h_faces_head, False, False, 0)
 
         self.group_profiles = self._create_inset_group()
         page.pack_start(self.group_profiles, False, False, 0)
@@ -1269,6 +1362,12 @@ class SettingsWindow(Gtk.Window):
         self.lbl_cam_device_spec.get_style_context().add_class("row-desc")
         hud_bar.pack_end(self.lbl_cam_device_spec, False, False, 0)
 
+        btn_cam_refresh = Gtk.Button(label="↻ Refresh Sensor")
+        btn_cam_refresh.get_style_context().add_class("btn-macos")
+        btn_cam_refresh.set_valign(Gtk.Align.CENTER)
+        btn_cam_refresh.connect("clicked", self._on_manual_refresh)
+        hud_bar.pack_end(btn_cam_refresh, False, False, 0)
+
         self.viewfinder_container.pack_start(hud_bar, False, False, 0)
 
         h_align_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -1337,7 +1436,14 @@ class SettingsWindow(Gtk.Window):
     def _build_diagnostics_page(self) -> Gtk.Widget:
         scroll, page = self._create_page_wrapper("Diagnostics")
 
-        page.pack_start(self._create_group_heading("Real-time vision telemetry (live on-camera stats)"), False, False, 0)
+        h_diag_head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        h_diag_head.pack_start(self._create_group_heading("Real-time vision telemetry (live on-camera stats)"), True, True, 0)
+        btn_diag_refresh = Gtk.Button(label="↻ Refresh Diagnostics")
+        btn_diag_refresh.get_style_context().add_class("btn-macos")
+        btn_diag_refresh.set_valign(Gtk.Align.CENTER)
+        btn_diag_refresh.connect("clicked", self._on_manual_refresh)
+        h_diag_head.pack_end(btn_diag_refresh, False, False, 0)
+        page.pack_start(h_diag_head, False, False, 0)
 
         hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=18)
 
@@ -1499,7 +1605,7 @@ class SettingsWindow(Gtk.Window):
 
         self._update_setting("is_face_unlock_enabled", active)
         if hasattr(self, "lbl_hero_status"):
-            self.lbl_hero_status.set_text("● Active" if active else "● Disabled")
+            self.lbl_hero_status.set_text("● Active (Works immediately)" if active else "● Disabled")
             ctx = self.lbl_hero_status.get_style_context()
             if active:
                 ctx.remove_class("pill-badge-disabled")
@@ -1842,6 +1948,11 @@ class SettingsWindow(Gtk.Window):
             return None
 
     def _on_destroy(self, window):
+        if hasattr(self, "lock_monitor") and self.lock_monitor:
+            try:
+                self.lock_monitor.stop()
+            except Exception:
+                pass
         if self._camera_timer:
             GLib.source_remove(self._camera_timer)
             self._camera_timer = None
