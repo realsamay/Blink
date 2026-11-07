@@ -1,7 +1,7 @@
 """
 Apple-style Face ID Enrollment Dialog with multi-distance face detection,
 adaptive zoom, 5 natural guided poses (Center, Left, Right, Up, Down),
-and post-enrollment profile naming with blurred frosted glass preview.
+buttery-smooth 60fps radial aperture animation, and always-visible profile naming.
 """
 
 from __future__ import annotations
@@ -83,32 +83,39 @@ class EnrollmentDialog(Gtk.Dialog):
         self.smooth_cy: Optional[float] = None
         self.smooth_span: Optional[float] = None
 
+        # Butter-smooth Apple 60 FPS animation states
+        self.anim_tick = 0.0
+        self.smooth_lit_ticks: float = 0.0
+        self.smooth_hold_progress: float = 0.0
+        self.smooth_dir_angle: Optional[float] = None
+        self.complete_anim: float = 0.0
+
         self.is_completed = False
         self.latest_frame: Optional[np.ndarray] = None
         self.frozen_blurred_pixbuf: Optional[GdkPixbuf.Pixbuf] = None
         self.latest_face: Optional[DetectedFace] = None
         self.status_message = "Position your face in the circle"
-        self.anim_tick = 0.0
 
         self._build_ui()
 
         if not self.camera._running:
             self.camera.start()
-        self._timer_id = GLib.timeout_add(33, self._process_next_frame)
+        # 16ms timer for fluid 60 FPS rendering
+        self._timer_id = GLib.timeout_add(16, self._process_next_frame)
         self.connect("destroy", self._on_dialog_destroy)
 
     def _build_ui(self) -> None:
         area = self.get_content_area()
-        area.set_spacing(16)
-        area.set_border_width(24)
+        area.set_spacing(14)
+        area.set_border_width(22)
 
-        # Header Prompt
+        # 1. Header Prompt
         self.lbl_instruction = Gtk.Label()
         self.lbl_instruction.set_use_markup(True)
         self._update_instruction_text()
         area.pack_start(self.lbl_instruction, False, False, 0)
 
-        # Circular Camera Feed + Ring Canvas
+        # 2. Circular Camera Feed + Ring Canvas (340x340)
         self.draw_area = Gtk.DrawingArea()
         self.draw_area.set_size_request(340, 340)
         self.draw_area.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
@@ -116,45 +123,46 @@ class EnrollmentDialog(Gtk.Dialog):
         self.draw_area.connect("button-press-event", self._on_drawing_area_clicked)
         area.pack_start(self.draw_area, True, True, 0)
 
-        # Real-time Status Badge during scanning
+        # 3. Real-time Status Badge
         self.lbl_status = Gtk.Label(label=self.status_message)
         area.pack_start(self.lbl_status, False, False, 0)
 
-        # Helper Tip during scanning
+        # 4. Helper Tip
         self.lbl_tip = Gtk.Label(label="<span size='small' foreground='#888888'>Auto-captures when aligned — or click the circle to capture</span>")
         self.lbl_tip.set_use_markup(True)
         area.pack_start(self.lbl_tip, False, False, 0)
 
-        # Completion Profile Name Card (Initially Hidden, shown when 5 poses complete!)
-        self.card_complete = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        self.card_complete.set_no_show_all(True)
-        self.card_complete.hide()
+        # 5. Profile Name Inset Row (ALWAYS visible and prominently styled)
+        name_card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        name_card.get_style_context().add_class("enroll-name-card")
 
-        lbl_prompt = Gtk.Label(label="<b>Name this Face ID profile:</b>")
-        lbl_prompt.set_use_markup(True)
-        lbl_prompt.set_xalign(0)
-        self.card_complete.pack_start(lbl_prompt, False, False, 0)
+        lbl_name_tag = Gtk.Label(label="<b>Profile Name:</b>")
+        lbl_name_tag.set_use_markup(True)
+        lbl_name_tag.set_xalign(0)
+        lbl_name_tag.set_valign(Gtk.Align.CENTER)
+        name_card.pack_start(lbl_name_tag, False, False, 0)
 
-        h_input = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         self.entry_name = Gtk.Entry()
-        self.entry_name.set_placeholder_text("e.g. Personal, Work, Samay")
+        self.entry_name.set_placeholder_text("e.g. Samay, Personal, Work")
         self.entry_name.set_text(self.user_name)
         self.entry_name.connect("activate", lambda e: self._on_save_clicked(None))
-        h_input.pack_start(self.entry_name, True, True, 0)
+        name_card.pack_start(self.entry_name, True, True, 0)
+        area.pack_start(name_card, False, False, 0)
 
-        btn_save = Gtk.Button(label="Save Face Profile")
-        btn_save.get_style_context().add_class("btn-macos-primary")
-        btn_save.connect("clicked", self._on_save_clicked)
-        h_input.pack_start(btn_save, False, False, 0)
+        # 6. Bottom Action Bar
+        self.btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
 
-        self.card_complete.pack_start(h_input, False, False, 0)
-        area.pack_start(self.card_complete, False, False, 0)
-
-        # Bottom Action Bar
-        self.btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         self.btn_cancel = Gtk.Button(label="Cancel")
+        self.btn_cancel.get_style_context().add_class("btn-macos")
         self.btn_cancel.connect("clicked", lambda b: self.destroy())
-        self.btn_box.pack_end(self.btn_cancel, False, False, 0)
+        self.btn_box.pack_start(self.btn_cancel, False, False, 0)
+
+        self.btn_save = Gtk.Button(label="Save Face Profile")
+        self.btn_save.get_style_context().add_class("btn-macos-primary")
+        self.btn_save.set_sensitive(False)
+        self.btn_save.connect("clicked", self._on_save_clicked)
+        self.btn_box.pack_end(self.btn_save, False, False, 0)
+
         area.pack_end(self.btn_box, False, False, 0)
 
         self.show_all()
@@ -163,7 +171,7 @@ class EnrollmentDialog(Gtk.Dialog):
         if self.is_completed:
             self.lbl_instruction.set_markup(
                 "<span size='x-large' weight='bold' foreground='#30D158'>Face ID Enrolled</span>\n"
-                "<span size='small' foreground='#AAAAAA'>Your biometric scan is complete. Name your profile below to finish.</span>"
+                "<span size='small' foreground='#AAAAAA'>Confirm your profile name and click Save below.</span>"
             )
         else:
             tag, title, hint = POSES[self.current_pose_idx]
@@ -174,10 +182,40 @@ class EnrollmentDialog(Gtk.Dialog):
             )
 
     def _process_next_frame(self) -> bool:
-        self.anim_tick += 0.05
+        self.anim_tick += 0.035
+
+        # Smooth ticks interpolation
+        target_lit = float(len(self.completed_poses)) / float(len(POSES)) * float(TOTAL_TICKS)
         if self.is_completed:
+            target_lit = float(TOTAL_TICKS)
+        self.smooth_lit_ticks += (target_lit - self.smooth_lit_ticks) * 0.14
+        self.smooth_hold_progress += (self.hold_progress - self.smooth_hold_progress) * 0.22
+
+        if self.is_completed:
+            if self.complete_anim < 1.0:
+                self.complete_anim = min(1.0, self.complete_anim + 0.04)
             self.draw_area.queue_draw()
             return True
+
+        # Directional angle target for smooth guide
+        if self.current_pose_idx < len(POSES):
+            tag, _, _ = POSES[self.current_pose_idx]
+            target_angle = None
+            if tag == "left":
+                target_angle = math.pi
+            elif tag == "right":
+                target_angle = 0.0
+            elif tag == "up":
+                target_angle = -math.pi / 2
+            elif tag == "down":
+                target_angle = math.pi / 2
+
+            if target_angle is not None:
+                if self.smooth_dir_angle is None:
+                    self.smooth_dir_angle = target_angle
+                else:
+                    d_theta = (target_angle - self.smooth_dir_angle + math.pi) % (2 * math.pi) - math.pi
+                    self.smooth_dir_angle += d_theta * 0.14
 
         latest = self.camera.get_latest_frame()
         if latest is None:
@@ -320,10 +358,13 @@ class EnrollmentDialog(Gtk.Dialog):
         self.hold_progress = 0.0
         self.pose_started_at = time.time()
 
-        if self.current_pose_idx >= len(POSES):
-            self._on_poses_completed()
-        else:
+        # Update button state
+        self.btn_save.set_sensitive(True)
+        if self.current_pose_idx < len(POSES):
+            self.btn_save.set_label(f"Save Profile ({len(self.completed_poses)}/5 Poses)")
             self._update_instruction_text()
+        else:
+            self._on_poses_completed()
 
     def _on_poses_completed(self) -> None:
         """Called when all 5 poses are collected: freezes and blurs circle and lets user name profile."""
@@ -355,15 +396,19 @@ class EnrollmentDialog(Gtk.Dialog):
                 )
 
         # Transition UI to completion state
-        self.lbl_status.hide()
-        self.lbl_tip.hide()
-        self.card_complete.show_all()
+        self.lbl_status.set_text("● All 5 poses captured successfully")
+        self.btn_save.set_sensitive(True)
+        self.btn_save.set_label("Save Face Profile")
+        self.btn_save.get_style_context().add_class("btn-macos-primary")
         self.btn_cancel.set_label("Close")
         self.entry_name.grab_focus()
         self.entry_name.select_region(0, -1)
         self.draw_area.queue_draw()
 
     def _on_save_clicked(self, button) -> None:
+        if not self.captured_samples:
+            return
+
         name = self.entry_name.get_text().strip() or "Me"
         identity = {
             "id": str(uuid.uuid4()),
@@ -406,7 +451,7 @@ class EnrollmentDialog(Gtk.Dialog):
             Gdk.cairo_set_source_pixbuf(cr, self.frozen_blurred_pixbuf, cx - circle_radius, cy - circle_radius)
             cr.paint()
             # Frosted glass dark tint overlay
-            cr.set_source_rgba(0.08, 0.08, 0.12, 0.60)
+            cr.set_source_rgba(0.08, 0.08, 0.12, 0.55)
             cr.paint()
             cr.restore()
         elif self.latest_frame is not None:
@@ -444,44 +489,54 @@ class EnrollmentDialog(Gtk.Dialog):
             cr.set_line_width(3.2)
             cr.set_source_rgba(0.20, 0.85, 0.40, 1.0)
         elif self.hold_progress > 0:
-            cr.set_line_width(3.4)
+            cr.set_line_width(3.2)
             cr.set_source_rgba(0.20, 0.88, 0.40, 1.0)
         elif self.latest_face is not None:
             cr.set_line_width(2.6)
-            cr.set_source_rgba(0.20, 0.80, 0.40, 0.85)  # Apple Soft Green Face in View
+            cr.set_source_rgba(0.20, 0.80, 0.40, 0.85)
         else:
             cr.set_line_width(2.0)
-            cr.set_source_rgba(1.0, 1.0, 1.0, 0.25)     # Subtle White Outline
+            cr.set_source_rgba(1.0, 1.0, 1.0, 0.22)
         cr.arc(cx, cy, circle_radius, 0, 2 * math.pi)
         cr.stroke()
 
-        # 3. 64 Radial Ticks (Apple Soft Dashes)
-        done_fraction = float(len(self.completed_poses)) / float(len(POSES))
-        ticks_lit = int(done_fraction * TOTAL_TICKS)
-        if self.is_completed:
-            ticks_lit = TOTAL_TICKS
-
+        # 3. 64 Radial Ticks with Butter-Smooth Continuous Wave Filling
         cr.set_line_cap(cairo.LINE_CAP_ROUND)
 
         for i in range(TOTAL_TICKS):
             deg = float(i) * (360.0 / float(TOTAL_TICKS))
             rad = math.radians(deg - 90.0)
 
-            is_lit = (i < ticks_lit)
-            is_active = (not is_lit and i < (ticks_lit + 13) and self.hold_progress > 0)
-
-            if is_lit or self.is_completed:
-                t_len = 16.0
-                cr.set_source_rgba(0.20, 0.85, 0.40, 1.0)  # Apple Green Done
+            diff = self.smooth_lit_ticks - float(i)
+            if diff >= 1.0 or self.is_completed:
+                # Fully completed tick: vibrant Apple Green
                 cr.set_line_width(2.6)
-            elif is_active:
-                t_len = 12.0 + 5.0 * self.hold_progress
-                cr.set_source_rgba(0.22, 0.90, 0.45, 0.95) # Radiant Green Filling
-                cr.set_line_width(2.8)
+                cr.set_source_rgba(0.19, 0.82, 0.35, 1.0)
+                t_len = 15.0
+            elif diff > 0.0:
+                # Interpolating tick (smooth filling wave)
+                frac = diff
+                cr.set_line_width(2.2 + 0.6 * frac)
+                cr.set_source_rgba(
+                    0.20,
+                    0.82 * frac + 0.25 * (1.0 - frac),
+                    0.38 * frac + 0.25 * (1.0 - frac),
+                    0.25 + 0.75 * frac
+                )
+                t_len = 10.0 + 5.0 * frac
             else:
-                t_len = 9.0
-                cr.set_source_rgba(1.0, 1.0, 1.0, 0.20)     # Subtle Translucent White Ticks
-                cr.set_line_width(2.0)
+                # Unlit tick: if currently in active hold, light up dynamically
+                active_start = int(self.smooth_lit_ticks)
+                active_end = active_start + 13
+                if active_start <= i < active_end and self.smooth_hold_progress > 0:
+                    prog = self.smooth_hold_progress
+                    cr.set_line_width(2.6)
+                    cr.set_source_rgba(0.20, 0.85, 0.40, 0.35 + 0.60 * prog)
+                    t_len = 10.0 + 4.5 * prog
+                else:
+                    cr.set_line_width(2.0)
+                    cr.set_source_rgba(1.0, 1.0, 1.0, 0.18)
+                    t_len = 9.0
 
             x1 = cx + ring_inner_r * math.cos(rad)
             y1 = cy + ring_inner_r * math.sin(rad)
@@ -492,47 +547,47 @@ class EnrollmentDialog(Gtk.Dialog):
             cr.line_to(x2, y2)
             cr.stroke()
 
-        # 4. Smooth Apple Directional Sweep Indicator
-        if not self.is_completed and self.current_pose_idx < len(POSES):
+        # 4. Smooth Apple Directional Guide Indicator
+        if not self.is_completed and self.smooth_dir_angle is not None and self.current_pose_idx < len(POSES):
             tag, _, _ = POSES[self.current_pose_idx]
-            dir_angle = None
-            if tag == "left":
-                dir_angle = math.pi  # 180 deg (Left)
-            elif tag == "right":
-                dir_angle = 0.0      # 0 deg (Right)
-            elif tag == "up":
-                dir_angle = -math.pi / 2  # -90 deg (Up)
-            elif tag == "down":
-                dir_angle = math.pi / 2   # 90 deg (Down)
-
-            if dir_angle is not None:
-                # Directional glowing pointer arc
-                arc_span = 0.35 * math.pi
+            if tag in ("left", "right", "up", "down"):
+                arc_span = 0.32 * math.pi
                 pulse = 0.5 + 0.5 * math.sin(self.anim_tick * 4.0)
-                cr.set_line_width(3.5)
+                cr.set_line_width(3.2)
                 cr.set_source_rgba(0.20, 0.85, 0.40, 0.40 + 0.50 * pulse)
-                cr.arc(cx, cy, ring_inner_r + 20.0, dir_angle - arc_span / 2, dir_angle + arc_span / 2)
+                cr.arc(cx, cy, ring_inner_r + 20.0, self.smooth_dir_angle - arc_span / 2, self.smooth_dir_angle + arc_span / 2)
                 cr.stroke()
 
-        # 5. Checkmark when done
+                # Glowing directional arrowhead tip
+                tip_rad = ring_inner_r + 25.0 + 3.0 * pulse
+                tx = cx + tip_rad * math.cos(self.smooth_dir_angle)
+                ty = cy + tip_rad * math.sin(self.smooth_dir_angle)
+                cr.arc(tx, ty, 3.2, 0, 2 * math.pi)
+                cr.set_source_rgba(0.20, 0.85, 0.40, 0.85)
+                cr.fill()
+
+        # 5. Blooming Checkmark when done
         if self.is_completed:
-            # Checkmark badge circle
-            cr.set_source_rgba(0.20, 0.85, 0.40, 0.25)
-            cr.arc(cx, cy, 38.0, 0, 2 * math.pi)
+            scale = 1.0 + 0.18 * math.sin(self.complete_anim * math.pi)
+            badge_r = 38.0 * scale
+
+            # Glowing circle backdrop
+            cr.set_source_rgba(0.20, 0.85, 0.40, 0.22)
+            cr.arc(cx, cy, badge_r, 0, 2 * math.pi)
             cr.fill()
-            cr.set_line_width(2.0)
-            cr.set_source_rgba(0.20, 0.85, 0.40, 0.85)
-            cr.arc(cx, cy, 38.0, 0, 2 * math.pi)
+            cr.set_line_width(2.2)
+            cr.set_source_rgba(0.20, 0.85, 0.40, 0.90)
+            cr.arc(cx, cy, badge_r, 0, 2 * math.pi)
             cr.stroke()
 
             # Crisp Checkmark
-            cr.set_line_width(5.0)
+            cr.set_line_width(5.2 * scale)
             cr.set_line_cap(cairo.LINE_CAP_ROUND)
             cr.set_line_join(cairo.LINE_JOIN_ROUND)
             cr.set_source_rgba(1.0, 1.0, 1.0, 1.0)
-            cr.move_to(cx - 16, cy + 1)
-            cr.line_to(cx - 4, cy + 13)
-            cr.line_to(cx + 17, cy - 10)
+            cr.move_to(cx - 16 * scale, cy + 1 * scale)
+            cr.line_to(cx - 4 * scale, cy + 13 * scale)
+            cr.line_to(cx + 17 * scale, cy - 10 * scale)
             cr.stroke()
 
         cr.restore()
@@ -542,4 +597,3 @@ class EnrollmentDialog(Gtk.Dialog):
         if self._timer_id:
             GLib.source_remove(self._timer_id)
             self._timer_id = None
-        self.camera.stop()

@@ -178,15 +178,12 @@ class VisionTelemetryWorker(threading.Thread):
                 frame_id, frame = latest
                 if frame_id == self.last_frame_id:
                     # Same frame repeating (camera stalled or dropped)
-                    if now - last_frame_change_time > 0.6:
+                    if now - last_frame_change_time > 0.5:
                         with self._lock:
                             self.detected_faces_telemetry = []
                             self.recognized_identity_ids = {}
                             self.top_similarity = 0.0
                             self.top_name = "No Face"
-                    if now - last_frame_change_time > 1.2:
-                        self.camera.reset()
-                        last_frame_change_time = now
                     time.sleep(0.015)
                     continue
 
@@ -554,6 +551,26 @@ list.sidebar-list row:selected label {
     box-shadow: 0 4px 14px rgba(255, 69, 58, 0.45);
 }
 
+/* Enrollment Profile Name Card */
+.enroll-name-card {
+    background-color: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 10px;
+    padding: 10px 14px;
+}
+.enroll-name-card entry {
+    background-color: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.20);
+    border-radius: 6px;
+    color: #FFFFFF;
+    font-size: 13px;
+    padding: 6px 10px;
+}
+.enroll-name-card entry:focus {
+    border-color: #0A84FF;
+    background-color: rgba(255, 255, 255, 0.12);
+}
+
 /* Authentic Apple Toggles */
 switch {
     background-color: rgba(255, 255, 255, 0.16);
@@ -840,9 +857,7 @@ class SettingsWindow(Gtk.Window):
         self.connect("destroy", self._on_destroy)
 
         # Start camera & vision worker for live recognition
-        self.camera.start(device_index=self.settings.camera_index)
-        self.vision_worker.start_worker()
-        self._camera_timer = GLib.timeout_add(33, self._update_camera_feeds)
+        self._start_vision_pipeline()
 
         # Monitor lock state so Settings releases the camera when screen locks,
         # giving the background unlock daemon immediate and exclusive camera access!
@@ -857,35 +872,90 @@ class SettingsWindow(Gtk.Window):
             self.lock_monitor = None
             print(f"[SettingsWindow] Lock monitor initialization notice: {e}")
 
+    def _start_vision_pipeline(self) -> None:
+        """Starts the camera device, spawns a fresh worker thread if needed, and starts GUI timer."""
+        if not self.camera.is_running:
+            self.camera.start(device_index=self.settings.camera_index)
+
+        if self.vision_worker is None or not self.vision_worker.is_alive():
+            self.vision_worker = VisionTelemetryWorker(
+                camera=self.camera,
+                detector=self.detector,
+                aligner=self.aligner,
+                embedder=self.embedder,
+                liveness=self.liveness,
+            )
+            self.vision_worker.start_worker()
+
+        if self._camera_timer is None:
+            self._camera_timer = GLib.timeout_add(33, self._update_camera_feeds)
+
+    def _stop_vision_pipeline(self) -> None:
+        """Stops GUI timer, stops vision worker thread, and releases camera device."""
+        if self._camera_timer is not None:
+            GLib.source_remove(self._camera_timer)
+            self._camera_timer = None
+
+        if self.vision_worker is not None:
+            self.vision_worker.stop_worker()
+
+        self.camera.stop()
+
     def _on_system_locked(self) -> None:
         """Screen was locked: immediately release camera so the background unlock daemon can scan without resource contention."""
         print("[SettingsWindow] Screen locked: releasing camera device for background daemon.")
-        self.vision_worker.stop_worker()
-        self.camera.stop()
+        self._stop_vision_pipeline()
 
     def _on_system_unlocked(self) -> None:
-        """Screen unlocked: resume live viewfinder preview if an optical tab is active."""
+        """Screen unlocked: resume live optical view if an optical tab is active."""
         print("[SettingsWindow] Screen unlocked: resuming live optical view.")
         def _resume():
-            time.sleep(0.4)
+            time.sleep(0.3)
             if self._active_page in ("face_id", "camera", "diagnostics"):
-                self.camera.start(device_index=self.settings.camera_index)
-                self.vision_worker.start_worker()
-                if self._camera_timer is None:
-                    self._camera_timer = GLib.timeout_add(33, self._update_camera_feeds)
+                self._start_vision_pipeline()
+            return False
         GLib.idle_add(_resume)
 
     def _on_manual_refresh(self, button=None) -> None:
         """Manually refreshes sensor feeds, clears telemetry caches, and reloads profiles."""
         print("[SettingsWindow] Manual refresh requested.")
-        with self.vision_worker._lock:
-            self.vision_worker.detected_faces_telemetry = []
-            self.vision_worker.recognized_identity_ids = {}
-            self.vision_worker.top_similarity = 0.0
-            self.vision_worker.top_name = "No Face"
-            self.vision_worker.last_frame_id = -1
+
+        if button and hasattr(button, "get_label"):
+            orig_label = button.get_label()
+            button.set_label("✓ Refreshed")
+            def _restore():
+                try:
+                    button.set_label(orig_label)
+                except Exception:
+                    pass
+                return False
+            GLib.timeout_add(750, _restore)
+
+        self._stop_vision_pipeline()
+
+        # Explicitly clear all match styles from rows right away
+        for widget_dict in self.profile_row_widgets.values():
+            try:
+                widget_dict["row"].get_style_context().remove_class("row-face-recognized")
+                widget_dict["badge"].hide()
+            except Exception:
+                pass
+
+        if hasattr(self, "lbl_fl_sim"):
+            self.lbl_fl_sim.set_text("--")
+            self.prog_fl_sim.set_fraction(0.0)
+            self.lbl_fl_decision.set_text("Refreshed")
+            if hasattr(self, "fl_cue_labels"):
+                for cue in self.fl_cue_labels:
+                    self.fl_cue_labels[cue].set_text("--")
+                    self.fl_cue_progs[cue].set_fraction(0.0)
+
         self._refresh_profiles_row()
         self.camera.reset()
+
+        if self._active_page in ("face_id", "camera", "diagnostics"):
+            self._start_vision_pipeline()
+            self._update_camera_feeds()
 
     def _on_realize(self, widget) -> None:
         enable_x11_window_blur(self)
@@ -978,17 +1048,9 @@ class SettingsWindow(Gtk.Window):
         self.headerbar.props.title = row._title_text
 
         if page_id in ("face_id", "camera", "diagnostics"):
-            if not self.camera._running:
-                self.camera.start(device_index=self.settings.camera_index)
-            self.vision_worker.start_worker()
-            if self._camera_timer is None:
-                self._camera_timer = GLib.timeout_add(33, self._update_camera_feeds)
+            self._start_vision_pipeline()
         else:
-            if self._camera_timer is not None:
-                GLib.source_remove(self._camera_timer)
-                self._camera_timer = None
-            self.vision_worker.stop_worker()
-            self.camera.stop()
+            self._stop_vision_pipeline()
 
     # --------------------------------------------------------------------------
     # Inset Card Helpers
@@ -1752,11 +1814,7 @@ class SettingsWindow(Gtk.Window):
 
     def _on_test_scan_clicked(self, button) -> None:
         """Pops out the Face ID overlay directly on desktop to test scanning flow with guaranteed dismissal."""
-        if self._camera_timer:
-            GLib.source_remove(self._camera_timer)
-            self._camera_timer = None
-        self.vision_worker.stop_worker()
-        self.camera.stop()
+        self._stop_vision_pipeline()
 
         from blink.core.coordinator import FaceUnlockCoordinator
         if hasattr(self, "_test_coordinator") and self._test_coordinator is not None:
@@ -1770,18 +1828,11 @@ class SettingsWindow(Gtk.Window):
         def _resume():
             time.sleep(2.4)
             if self._active_page in ("face_id", "camera", "diagnostics"):
-                self.camera.start(device_index=self.settings.camera_index)
-                self.vision_worker.start_worker()
-                if self._camera_timer is None:
-                    self._camera_timer = GLib.timeout_add(33, self._update_camera_feeds)
+                GLib.idle_add(self._start_vision_pipeline)
         threading.Thread(target=_resume, daemon=True).start()
 
     def _start_enrollment_wizard(self, button) -> None:
-        if self._camera_timer:
-            GLib.source_remove(self._camera_timer)
-            self._camera_timer = None
-        self.vision_worker.stop_worker()
-        self.camera.stop()
+        self._stop_vision_pipeline()
 
         dialog = EnrollmentDialog(parent=self, camera=self.camera)
         dialog.run()
@@ -1794,118 +1845,120 @@ class SettingsWindow(Gtk.Window):
             self.sw_master.set_active(True)
             self._update_setting("is_face_unlock_enabled", True)
             if hasattr(self, "lbl_hero_status"):
-                self.lbl_hero_status.set_text("● Active")
+                self.lbl_hero_status.set_text("● Active (Works immediately)")
                 ctx = self.lbl_hero_status.get_style_context()
                 ctx.remove_class("pill-badge-disabled")
                 ctx.add_class("pill-badge-active")
 
         if self._active_page in ("face_id", "camera", "diagnostics"):
-            self.camera.start(device_index=self.settings.camera_index)
-            self.vision_worker.start_worker()
-            self._camera_timer = GLib.timeout_add(33, self._update_camera_feeds)
+            self._start_vision_pipeline()
 
     # --------------------------------------------------------------------------
     # Whole-Sensor Display & Zero-Lag Real-Time Diagnostics
     # --------------------------------------------------------------------------
     def _update_camera_feeds(self) -> bool:
-        latest = self.camera.get_latest_frame()
-        if latest is None:
-            return True
+        try:
+            latest = self.camera.get_latest_frame()
+            if latest is None:
+                return True
 
-        _, frame = latest
-        h, w = frame.shape[:2]
-        telemetry = self.vision_worker.get_telemetry()
-        recognized_ids = telemetry.get("recognized_ids", {})
+            _, frame = latest
+            h, w = frame.shape[:2]
+            telemetry = self.vision_worker.get_telemetry()
+            recognized_ids = telemetry.get("recognized_ids", {})
 
-        # 1. Multi-Face Dynamic Highlighting in Face ID & Password Page
-        if self._active_page == "face_id":
-            for ident_id, widget_dict in self.profile_row_widgets.items():
-                row = widget_dict["row"]
-                badge = widget_dict["badge"]
-                if ident_id in recognized_ids:
-                    name, sim = recognized_ids[ident_id]
-                    row.get_style_context().add_class("row-face-recognized")
-                    badge.set_text(f"● In View ({int(sim * 100)}% match)")
-                    badge.show()
+            # 1. Multi-Face Dynamic Highlighting in Face ID & Password Page
+            if self._active_page == "face_id":
+                for ident_id, widget_dict in self.profile_row_widgets.items():
+                    row = widget_dict["row"]
+                    badge = widget_dict["badge"]
+                    if ident_id in recognized_ids:
+                        name, sim = recognized_ids[ident_id]
+                        row.get_style_context().add_class("row-face-recognized")
+                        badge.set_text(f"● In View ({int(sim * 100)}% match)")
+                        badge.show()
+                    else:
+                        row.get_style_context().remove_class("row-face-recognized")
+                        badge.hide()
+
+            # 2. Camera Page: Uncropped Full Sensor Viewfinder
+            elif self._active_page == "camera":
+                aspect = w / max(1, h)
+                aspect_lbl = "4:3 Full Sensor" if abs(aspect - 4/3) < 0.08 else ("16:9 Widescreen" if abs(aspect - 16/9) < 0.08 else f"{aspect:.2f}:1 Sensor")
+                self.lbl_cam_sensor_spec.set_text(f"{w} × {h} • {aspect_lbl}")
+
+                pixbuf = self._cv2_to_pixbuf_sensor(frame, max_w=520, max_h=380, add_reticle=True)
+                if pixbuf:
+                    self.img_cam_preview.set_from_pixbuf(pixbuf)
+
+            # 3. Diagnostics Page: Live on-camera HUD stats (Zero lag!)
+            elif self._active_page == "diagnostics":
+                disp = frame.copy()
+
+                # Render live HUD for every detected face on the camera feed
+                for face_item in telemetry.get("faces", []):
+                    fx, fy, fw, fh = face_item["bbox"]
+                    is_match = face_item["is_match"]
+                    color = (89, 199, 52) if is_match else (200, 200, 200)  # Apple Green or Silver
+
+                    # 4 Corner Apple Neon Viewfinder Brackets
+                    b_len = 16
+                    thick = 2
+                    cv2.line(disp, (fx, fy), (fx + b_len, fy), color, thick)
+                    cv2.line(disp, (fx, fy), (fx, fy + b_len), color, thick)
+                    cv2.line(disp, (fx + fw, fy), (fx + fw - b_len, fy), color, thick)
+                    cv2.line(disp, (fx + fw, fy), (fx + fw, fy + b_len), color, thick)
+                    cv2.line(disp, (fx, fy + fh), (fx + b_len, fy + fh), color, thick)
+                    cv2.line(disp, (fx, fy + fh), (fx, fy + fh - b_len), color, thick)
+                    cv2.line(disp, (fx + fw, fy + fh), (fx + fw - b_len, fy + fh), color, thick)
+                    cv2.line(disp, (fx + fw, fy + fh), (fx + fw, fy + fh - b_len), color, thick)
+
+                    # Name Tag Pill above each face
+                    sim = face_item["sim"]
+                    label_txt = f"{face_item['name']} • {int(sim*100)}%" if is_match else face_item["name"]
+                    (tw, th), _ = cv2.getTextSize(label_txt, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
+                    py1 = max(4, fy - 24)
+                    py2 = max(24, fy - 2)
+                    cv2.rectangle(disp, (fx, py1), (fx + tw + 14, py2), (18, 18, 24), -1)
+                    cv2.rectangle(disp, (fx, py1), (fx + tw + 14, py2), color, 1)
+                    cv2.putText(disp, label_txt, (fx + 7, py2 - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (255, 255, 255), 1, cv2.LINE_AA)
+
+                    # Landmarks dots
+                    if face_item.get("landmarks_5pt") is not None:
+                        for pt in face_item["landmarks_5pt"]:
+                            cv2.circle(disp, (int(pt[0]), int(pt[1])), 2, (0, 255, 255), -1)
+
+                # Top-left HUD badge on video feed
+                fps_val = int(1000.0 / max(1.0, telemetry.get("latency_ms", 30.0)))
+                cv2.rectangle(disp, (8, 8), (240, 32), (14, 14, 18), -1)
+                cv2.rectangle(disp, (8, 8), (240, 32), (80, 80, 90), 1)
+                cv2.circle(disp, (18, 20), 4, (52, 199, 89), -1)
+                cv2.putText(disp, f"NEURAL HUD  {w}x{h}  {fps_val} FPS", (28, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (220, 220, 230), 1, cv2.LINE_AA)
+
+                pixbuf = self._cv2_to_pixbuf_sensor(disp, max_w=400, max_h=300, add_reticle=False)
+                if pixbuf:
+                    self.img_facelab.set_from_pixbuf(pixbuf)
+
+                # Update right telemetry meters in parallel
+                top_sim = telemetry.get("top_sim", 0.0)
+                top_name = telemetry.get("top_name", "No Face")
+                if top_sim > 0.0:
+                    self.lbl_fl_sim.set_text(f"{top_sim:.2f} ({top_name})")
+                    self.prog_fl_sim.set_fraction(max(0.0, min(1.0, top_sim)))
                 else:
-                    row.get_style_context().remove_class("row-face-recognized")
-                    badge.hide()
+                    self.lbl_fl_sim.set_text("No Match")
+                    self.prog_fl_sim.set_fraction(0.0)
 
-        # 2. Camera Page: Uncropped Full Sensor Viewfinder
-        elif self._active_page == "camera":
-            aspect = w / max(1, h)
-            aspect_lbl = "4:3 Full Sensor" if abs(aspect - 4/3) < 0.08 else ("16:9 Widescreen" if abs(aspect - 16/9) < 0.08 else f"{aspect:.2f}:1 Sensor")
-            self.lbl_cam_sensor_spec.set_text(f"{w} × {h} • {aspect_lbl}")
+                cues_data = telemetry.get("cues", {})
+                for cue, (val, frac) in cues_data.items():
+                    if cue in self.fl_cue_labels:
+                        self.fl_cue_labels[cue].set_text(f"{val:.2f}")
+                        self.fl_cue_progs[cue].set_fraction(max(0.0, min(1.0, frac)))
 
-            pixbuf = self._cv2_to_pixbuf_sensor(frame, max_w=520, max_h=380, add_reticle=True)
-            if pixbuf:
-                self.img_cam_preview.set_from_pixbuf(pixbuf)
+                self.lbl_fl_decision.set_text(telemetry.get("verdict", "Ready"))
 
-        # 3. Diagnostics Page: Live on-camera HUD stats (Zero lag!)
-        elif self._active_page == "diagnostics":
-            disp = frame.copy()
-
-            # Render live HUD for every detected face on the camera feed
-            for face_item in telemetry.get("faces", []):
-                fx, fy, fw, fh = face_item["bbox"]
-                is_match = face_item["is_match"]
-                color = (89, 199, 52) if is_match else (200, 200, 200)  # Apple Green or Silver
-
-                # 4 Corner Apple Neon Viewfinder Brackets
-                b_len = 16
-                thick = 2
-                cv2.line(disp, (fx, fy), (fx + b_len, fy), color, thick)
-                cv2.line(disp, (fx, fy), (fx, fy + b_len), color, thick)
-                cv2.line(disp, (fx + fw, fy), (fx + fw - b_len, fy), color, thick)
-                cv2.line(disp, (fx + fw, fy), (fx + fw, fy + b_len), color, thick)
-                cv2.line(disp, (fx, fy + fh), (fx + b_len, fy + fh), color, thick)
-                cv2.line(disp, (fx, fy + fh), (fx, fy + fh - b_len), color, thick)
-                cv2.line(disp, (fx + fw, fy + fh), (fx + fw - b_len, fy + fh), color, thick)
-                cv2.line(disp, (fx + fw, fy + fh), (fx + fw, fy + fh - b_len), color, thick)
-
-                # Name Tag Pill above each face
-                sim = face_item["sim"]
-                label_txt = f"{face_item['name']} • {int(sim*100)}%" if is_match else face_item["name"]
-                (tw, th), _ = cv2.getTextSize(label_txt, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
-                py1 = max(4, fy - 24)
-                py2 = max(24, fy - 2)
-                cv2.rectangle(disp, (fx, py1), (fx + tw + 14, py2), (18, 18, 24), -1)
-                cv2.rectangle(disp, (fx, py1), (fx + tw + 14, py2), color, 1)
-                cv2.putText(disp, label_txt, (fx + 7, py2 - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (255, 255, 255), 1, cv2.LINE_AA)
-
-                # Landmarks dots
-                if face_item.get("landmarks_5pt") is not None:
-                    for pt in face_item["landmarks_5pt"]:
-                        cv2.circle(disp, (int(pt[0]), int(pt[1])), 2, (0, 255, 255), -1)
-
-            # Top-left HUD badge on video feed
-            fps_val = int(1000.0 / max(1.0, telemetry.get("latency_ms", 30.0)))
-            cv2.rectangle(disp, (8, 8), (240, 32), (14, 14, 18), -1)
-            cv2.rectangle(disp, (8, 8), (240, 32), (80, 80, 90), 1)
-            cv2.circle(disp, (18, 20), 4, (52, 199, 89), -1)
-            cv2.putText(disp, f"NEURAL HUD  {w}x{h}  {fps_val} FPS", (28, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (220, 220, 230), 1, cv2.LINE_AA)
-
-            pixbuf = self._cv2_to_pixbuf_sensor(disp, max_w=400, max_h=300, add_reticle=False)
-            if pixbuf:
-                self.img_facelab.set_from_pixbuf(pixbuf)
-
-            # Update right telemetry meters in parallel
-            top_sim = telemetry.get("top_sim", 0.0)
-            top_name = telemetry.get("top_name", "No Face")
-            if top_sim > 0.0:
-                self.lbl_fl_sim.set_text(f"{top_sim:.2f} ({top_name})")
-                self.prog_fl_sim.set_fraction(max(0.0, min(1.0, top_sim)))
-            else:
-                self.lbl_fl_sim.set_text("No Match")
-                self.prog_fl_sim.set_fraction(0.0)
-
-            cues_data = telemetry.get("cues", {})
-            for cue, (val, frac) in cues_data.items():
-                if cue in self.fl_cue_labels:
-                    self.fl_cue_labels[cue].set_text(f"{val:.2f}")
-                    self.fl_cue_progs[cue].set_fraction(max(0.0, min(1.0, frac)))
-
-            self.lbl_fl_decision.set_text(telemetry.get("verdict", "Ready"))
+        except Exception as e:
+            print(f"[SettingsWindow] Warning in _update_camera_feeds: {e}")
 
         return True
 
@@ -1953,8 +2006,4 @@ class SettingsWindow(Gtk.Window):
                 self.lock_monitor.stop()
             except Exception:
                 pass
-        if self._camera_timer:
-            GLib.source_remove(self._camera_timer)
-            self._camera_timer = None
-        self.vision_worker.stop_worker()
-        self.camera.stop()
+        self._stop_vision_pipeline()

@@ -80,15 +80,24 @@ class CameraManager:
         return devices if devices else [0]
 
     def reset(self) -> bool:
-        """Safely resets and reopens the camera device to clear any driver stalls."""
-        with self._lock:
-            self._current_frame = None
-        return self._reopen_capture()
+        """Safely resets and reopens the camera device to clear any driver stalls without thread races."""
+        try:
+            cur_idx = self.device_index
+            self.stop()
+            time.sleep(0.08)
+            return self.start(device_index=cur_idx)
+        except Exception as e:
+            print(f"[CameraManager] Error resetting camera: {e}")
+            return False
 
-    def _reopen_capture(self) -> bool:
+    def _reopen_internal(self) -> bool:
+        """Internal recovery called solely within the capture loop thread."""
         try:
             if self._cap is not None:
-                self._cap.release()
+                try:
+                    self._cap.release()
+                except Exception:
+                    pass
                 self._cap = None
             time.sleep(0.08)
             available = self.list_devices()
@@ -110,7 +119,7 @@ class CameraManager:
                     self._cap.set(cv2.CAP_PROP_FPS, 30)
                     return True
         except Exception as e:
-            print(f"[CameraManager] Error resetting camera: {e}")
+            print(f"[CameraManager] Error in _reopen_internal: {e}")
         return False
 
     def start(self, device_index: Optional[int] = None) -> bool:
@@ -185,9 +194,9 @@ class CameraManager:
                     self._current_frame = frame
             else:
                 consecutive_errors += 1
-                if consecutive_errors >= 12:
+                if consecutive_errors >= 20:
                     # Auto-recover camera device if driver drops frame buffer
-                    self._reopen_capture()
+                    self._reopen_internal()
                     consecutive_errors = 0
                 time.sleep(0.02)
             time.sleep(0.01)  # Throttle to ~30-40 fps

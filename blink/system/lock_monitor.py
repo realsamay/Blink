@@ -211,31 +211,27 @@ class LinuxLockMonitor:
             print(f"[LockMonitor] SystemBus connection failed: {e}")
             system_bus = None
 
-        # 1. Listen for Screensaver ActiveChanged
+        # 1. Listen for Screensaver ActiveChanged on official screensaver interfaces
         if session_bus is not None:
-            def handle_active_changed(active: bool):
-                self._on_screensaver_active_changed(active)
+            def handle_active_changed(*args):
+                try:
+                    # Authoritatively confirm lock state to prevent spurious triggers from other apps
+                    confirmed = self.is_screen_actually_locked()
+                    self._on_screensaver_active_changed(confirmed)
+                except Exception:
+                    pass
 
-            try:
-                sub_global = session_bus.subscribe(
-                    signal="ActiveChanged",
-                    signal_fired=lambda *args: handle_active_changed(bool(args[4][0])),
-                )
-                self._subscriptions.append(sub_global)
-            except Exception:
-                pass
-
-            for service in [
-                ("org.cinnamon.ScreenSaver", "/org/cinnamon/ScreenSaver"),
-                ("org.gnome.ScreenSaver", "/org/gnome/ScreenSaver"),
-                ("org.freedesktop.ScreenSaver", "/org/freedesktop/ScreenSaver"),
-                ("org.mate.ScreenSaver", "/org/mate/ScreenSaver"),
+            for iface in [
+                "org.cinnamon.ScreenSaver",
+                "org.gnome.ScreenSaver",
+                "org.freedesktop.ScreenSaver",
+                "org.mate.ScreenSaver",
             ]:
                 try:
                     sub = session_bus.subscribe(
-                        sender=service,
+                        interface=iface,
                         signal="ActiveChanged",
-                        signal_fired=lambda *args: handle_active_changed(bool(args[4][0])),
+                        signal_fired=handle_active_changed,
                     )
                     self._subscriptions.append(sub)
                 except Exception:
