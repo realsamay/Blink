@@ -151,6 +151,11 @@ class VisionTelemetryWorker(threading.Thread):
 
     def stop_worker(self) -> None:
         self._running = False
+        if self.is_alive() and threading.current_thread() != self:
+            try:
+                self.join(timeout=0.8)
+            except Exception:
+                pass
 
     def run(self) -> None:
         last_face_seen_time = time.time()
