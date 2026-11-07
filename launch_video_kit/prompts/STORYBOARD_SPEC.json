@@ -1,0 +1,85 @@
+{
+  "project": "Blink Launch Commercial",
+  "version": "1.0",
+  "resolution": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  },
+  "total_duration_sec": 42.0,
+  "scenes": [
+    {
+      "scene_id": "01_hook",
+      "start_time": 0.0,
+      "end_time": 4.5,
+      "headline": "What if unlocking your laptop was as simple as looking at it?",
+      "visual_mood": "Minimalist obsidian dark void with subtle deep blue ambient glow",
+      "camera_motion": "Slow dolly-in zoom",
+      "reference_image": "screenshots/ad_scene1_hook.png",
+      "audio_cue": "Deep sub-bass whoosh + intimate voiceover"
+    },
+    {
+      "scene_id": "02_reveal",
+      "start_time": 4.5,
+      "end_time": 10.5,
+      "headline": "INTRODUCING BLINK. Native Face ID for Linux & Windows.",
+      "visual_mood": "Radiant cyan iris bloom, glowing metallic neon emblem",
+      "camera_motion": "Slow camera pull-back",
+      "reference_clip": "clips/logoanimation.mp4",
+      "reference_image": "assets/final.png",
+      "audio_cue": "Ethereal glass chime swell + confident voiceover"
+    },
+    {
+      "scene_id": "03_unlock",
+      "start_time": 10.5,
+      "end_time": 18.0,
+      "headline": "Look. Unlocked. In 0.2 seconds.",
+      "visual_mood": "Modern laptop display wakes, Dynamic Island notch pops out with spring physics, scans face, blooms green",
+      "camera_motion": "Macro push-in on notch bezel",
+      "reference_clip": "clips/unlockanimation.mp4",
+      "reference_image": "screenshots/ad_scene3_unlock.png",
+      "audio_cue": "Spring pop + high-tech biometric sweep + iconic Apple two-tone unlock chime"
+    },
+    {
+      "scene_id": "04_telemetry",
+      "start_time": 18.0,
+      "end_time": 26.0,
+      "headline": "Zero Latency. Real-Time On-Device Neural Vision.",
+      "visual_mood": "Live on-camera HUD diagnostics with 106pt mesh and multi-face recognition tags",
+      "camera_motion": "Ken Burns lateral pan right with smooth tilt",
+      "reference_image": "screenshots/v2_tab_diagnostics_live.png",
+      "audio_cue": "Subtle radar pulse + technical voiceover"
+    },
+    {
+      "scene_id": "05_privacy",
+      "start_time": 26.0,
+      "end_time": 33.0,
+      "headline": "100% On-Device. Zero Cloud. Hardware-linked AES-256-GCM.",
+      "visual_mood": "Sculpted titanium and emerald security shield pulsing over dark water",
+      "camera_motion": "Slow zoom in with counter-clockwise rotation",
+      "reference_image": "screenshots/ad_scene5_privacy.png",
+      "audio_cue": "Solid metallic deadbolt click + reassuring voiceover"
+    },
+    {
+      "scene_id": "06_glass_ui",
+      "start_time": 33.0,
+      "end_time": 38.5,
+      "headline": "Designed with obsessive care. Apple Glassmorphism.",
+      "visual_mood": "3D floating perspective of the obsidian dark glass application suite",
+      "camera_motion": "Smooth floating crane pan up and back",
+      "reference_image": "screenshots/v2_suite_montage.png",
+      "audio_cue": "Warm melodic synth crescendo"
+    },
+    {
+      "scene_id": "07_outro",
+      "start_time": 38.5,
+      "end_time": 42.0,
+      "headline": "Blink. Face ID, reimagined for your computer.",
+      "cta_button": "github.com/realsamay/blink",
+      "visual_mood": "Glowing center crest with Apple-blue pill button and open-source badge",
+      "camera_motion": "Slow centered push-in to fade-to-black",
+      "reference_image": "screenshots/ad_scene7_outro.png",
+      "audio_cue": "Tape delay resolution + final punchy tagline"
+    }
+  ]
+}
