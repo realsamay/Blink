@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Blink Face ID - Windows 10/11 One-Click Setup & Service Installer
 .DESCRIPTION
@@ -13,13 +13,34 @@ Write-Host "             BLINK - FACE ID FOR WINDOWS SETUP" -ForegroundColor Cya
 Write-Host "============================================================" -ForegroundColor Cyan
 
 # 1. Check Python
+$pyCmd = "python"
 try {
-    $pythonVersion = python --version 2>&1
-    Write-Host "[✓] Python detected: $pythonVersion" -ForegroundColor Green
+    $pyCheck = python --version 2>&1
+    if ($LASTEXITCODE -ne 0) { throw }
+    Write-Host "[✓] Python detected: $pyCheck" -ForegroundColor Green
 } catch {
-    Write-Host "[!] Python 3.10+ was not found in PATH." -ForegroundColor Red
-    Write-Host "Please install Python from https://www.python.org/downloads/ (check 'Add python.exe to PATH')." -ForegroundColor Yellow
-    exit 1
+    $candidates = @(
+        "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe",
+        "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe",
+        "$env:LOCALAPPDATA\Programs\Python\Python310\python.exe",
+        "C:\Python312\python.exe",
+        "C:\Python311\python.exe",
+        "C:\Python310\python.exe"
+    )
+    $foundPy = $false
+    foreach ($cand in $candidates) {
+        if (Test-Path $cand) {
+            $pyCmd = $cand
+            $foundPy = $true
+            Write-Host "[✓] Found Python at: $pyCmd" -ForegroundColor Green
+            break
+        }
+    }
+    if (-not $foundPy) {
+        Write-Host "[!] Python 3.10+ was not found in PATH or standard directories." -ForegroundColor Red
+        Write-Host "Please install Python from https://www.python.org/downloads/ (check 'Add python.exe to PATH')." -ForegroundColor Yellow
+        exit 1
+    }
 }
 
 # 2. Virtual Environment Setup
@@ -28,7 +49,7 @@ Set-Location $projectRoot
 
 if (-not (Test-Path ".venv")) {
     Write-Host "[*] Creating virtual environment (.venv)..." -ForegroundColor Yellow
-    python -m venv .venv
+    & $pyCmd -m venv .venv
 }
 
 $venvPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
