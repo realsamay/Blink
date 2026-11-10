@@ -28,6 +28,10 @@ hidden_imports = [
     "ctypes",
     "ctypes.wintypes",
     "onnxruntime",
+    "blink.ui.settings_window_win",
+    "blink.ui.notch_overlay_win",
+    "blink.system.lock_monitor_win",
+    "blink.system.keystroke_injector_win",
 ]
 
 a = Analysis(
