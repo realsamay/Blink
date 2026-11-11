@@ -321,6 +321,75 @@ class WindowsNotchOverlayWindow:
         except Exception as e:
             print(f"[WindowsNotchOverlay] Region clipping error: {e}")
 
+    def _render_procedural_face_id(self, canvas: np.ndarray, vx: int, vy: int, v_size: int) -> None:
+        """Procedural Apple Face ID glyph fallback with smooth radar beam scanning animation."""
+        cx = vx + v_size // 2
+        cy = vy + v_size // 2
+
+        if self.phase == OverlayPhase.SUCCESS:
+            color = (89, 215, 60)  # Bright Apple green (BGR)
+        elif self.phase == OverlayPhase.FAILURE:
+            color = (60, 60, 255)  # Apple system red (BGR)
+        else:
+            color = (255, 245, 230)  # Apple crisp white/ice blue (BGR)
+
+        # 1. Four corner bracket anchors of the Face ID square
+        bw = 26
+        bh = 28
+        arm = 10
+        r = 6
+
+        # Top-left
+        cv2.line(canvas, (cx - bw + r, cy - bh), (cx - bw + r + arm, cy - bh), color, 2, cv2.LINE_AA)
+        cv2.line(canvas, (cx - bw, cy - bh + r), (cx - bw, cy - bh + r + arm), color, 2, cv2.LINE_AA)
+        cv2.ellipse(canvas, (cx - bw + r, cy - bh + r), (r, r), 180, 0, 90, color, 2, cv2.LINE_AA)
+
+        # Top-right
+        cv2.line(canvas, (cx + bw - r, cy - bh), (cx + bw - r - arm, cy - bh), color, 2, cv2.LINE_AA)
+        cv2.line(canvas, (cx + bw, cy - bh + r), (cx + bw, cy - bh + r + arm), color, 2, cv2.LINE_AA)
+        cv2.ellipse(canvas, (cx + bw - r, cy - bh + r), (r, r), 270, 0, 90, color, 2, cv2.LINE_AA)
+
+        # Bottom-left
+        cv2.line(canvas, (cx - bw + r, cy + bh), (cx - bw + r + arm, cy + bh), color, 2, cv2.LINE_AA)
+        cv2.line(canvas, (cx - bw, cy + bh - r), (cx - bw, cy + bh - r - arm), color, 2, cv2.LINE_AA)
+        cv2.ellipse(canvas, (cx - bw + r, cy + bh - r), (r, r), 90, 0, 90, color, 2, cv2.LINE_AA)
+
+        # Bottom-right
+        cv2.line(canvas, (cx + bw - r, cy + bh), (cx + bw - r - arm, cy + bh), color, 2, cv2.LINE_AA)
+        cv2.line(canvas, (cx + bw, cy + bh - r), (cx + bw, cy + bh - r - arm), color, 2, cv2.LINE_AA)
+        cv2.ellipse(canvas, (cx + bw - r, cy + bh - r), (r, r), 0, 0, 90, color, 2, cv2.LINE_AA)
+
+        if self.phase == OverlayPhase.SUCCESS:
+            # Checkmark badge
+            pts = np.array([[cx - 10, cy + 2], [cx - 3, cy + 10], [cx + 12, cy - 8]], np.int32)
+            cv2.polylines(canvas, [pts], False, (89, 215, 60), 3, cv2.LINE_AA)
+        elif self.phase == OverlayPhase.FAILURE:
+            # Exclamation / Retry cross
+            cv2.line(canvas, (cx - 8, cy - 8), (cx + 8, cy + 8), color, 3, cv2.LINE_AA)
+            cv2.line(canvas, (cx + 8, cy - 8), (cx - 8, cy + 8), color, 3, cv2.LINE_AA)
+        else:
+            # Face ID facial features (eyes, nose, smile)
+            # Eyes
+            cv2.ellipse(canvas, (cx - 12, cy - 8), (2, 4), 0, 0, 360, color, -1, cv2.LINE_AA)
+            cv2.ellipse(canvas, (cx + 12, cy - 8), (2, 4), 0, 0, 360, color, -1, cv2.LINE_AA)
+
+            # Nose
+            cv2.line(canvas, (cx, cy - 3), (cx, cy + 4), color, 2, cv2.LINE_AA)
+            cv2.line(canvas, (cx, cy + 4), (cx + 3, cy + 4), color, 2, cv2.LINE_AA)
+
+            # Smile
+            cv2.ellipse(canvas, (cx, cy + 8), (11, 7), 0, 20, 160, color, 2, cv2.LINE_AA)
+
+            # Luminous Laser Scanning Bar
+            scan_prog = (math.sin(self.anim_tick * 3.2) + 1.0) / 2.0  # 0.0 to 1.0
+            scan_y = int(cy - bh + 6 + scan_prog * (bh * 2 - 12))
+
+            for offset, alpha in [(-2, 0.25), (-1, 0.5), (0, 1.0), (1, 0.5), (2, 0.25)]:
+                sy = scan_y + offset
+                if cy - bh < sy < cy + bh:
+                    beam_color = tuple(int(c * alpha) for c in (255, 230, 150))
+                    cv2.line(canvas, (cx - bw + 4, sy), (cx + bw - 4, sy), beam_color, 1, cv2.LINE_AA)
+
     def _render_current_frame(self, hdc: int) -> None:
         """Composites obsidian black glass card, active animation frame, and uniform subtle border."""
         if not hasattr(ctypes, "windll"):
@@ -335,7 +404,7 @@ class WindowsNotchOverlayWindow:
         # Base obsidian canvas: RGBA (8, 5, 5, 255)
         canvas = np.full((h, w, 4), (8, 5, 5, 255), dtype=np.uint8)
 
-        # Blit active animation surface
+        # Select active animation surface
         frame: Optional[np.ndarray] = None
         if self.phase == OverlayPhase.SUCCESS and AnimationAssets.unlock_buffers:
             idx = min(self.unlock_frame_idx, len(AnimationAssets.unlock_buffers) - 1)
@@ -347,10 +416,20 @@ class WindowsNotchOverlayWindow:
             idx = self.idle_frame_idx % len(AnimationAssets.idle_buffers)
             frame = AnimationAssets.idle_buffers[idx]
 
-        if frame is not None and frame.shape[:2] == (v_size, v_size):
-            alpha = frame[:, :, 3:4] / 255.0
-            target_roi = canvas[vy:vy + v_size, vx:vx + v_size, :3]
-            canvas[vy:vy + v_size, vx:vx + v_size, :3] = (frame[:, :, :3] * alpha + target_roi * (1.0 - alpha)).astype(np.uint8)
+        if frame is not None:
+            # Auto-resize video buffer to exact video size if mismatch
+            if frame.shape[0] != v_size or frame.shape[1] != v_size:
+                frame = cv2.resize(frame, (v_size, v_size), interpolation=cv2.INTER_AREA)
+
+            if frame.shape[2] == 4:
+                alpha = frame[:, :, 3:4] / 255.0
+                target_roi = canvas[vy:vy + v_size, vx:vx + v_size, :3]
+                canvas[vy:vy + v_size, vx:vx + v_size, :3] = (frame[:, :, :3] * alpha + target_roi * (1.0 - alpha)).astype(np.uint8)
+            else:
+                canvas[vy:vy + v_size, vx:vx + v_size, :3] = frame[:, :, :3]
+        else:
+            # Procedural Apple Face ID glyph fallback ensures animation is ALWAYS rendered
+            self._render_procedural_face_id(canvas, vx, vy, v_size)
 
         # Draw uniform subtle glass perimeter ring (zero green or red lines)
         cv2.rectangle(canvas, (0, 0), (w - 1, h - 1), (45, 45, 48, 255), thickness=1)

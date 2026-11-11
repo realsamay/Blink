@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Blink — Face ID Settings</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="apple-theme dark-mode">
+
+  <!-- =========================================================================
+       DYNAMIC ISLAND LOCKSCREEN NOTCH CARD (FLOATING TEST OVERLAY)
+       ========================================================================= -->
+  <div id="dynamicIslandOverlay" class="dynamic-island-card closed">
+    <div class="island-notch-bezel"></div>
+    <div class="island-content">
+      <div id="islandAnimationContainer" class="island-anim-box">
+        <video id="islandVideo" class="island-video" autoplay loop muted playsinline></video>
+        <!-- Procedural Apple Face ID Glyph fallback -->
+        <div id="islandGlyph" class="island-glyph">
+          <div class="face-squircle">
+            <div class="face-eye left"></div>
+            <div class="face-eye right"></div>
+            <div class="face-smile"></div>
+            <div class="face-radar"></div>
+          </div>
+        </div>
+      </div>
+      <div id="islandStatusText" class="island-status">Face ID</div>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       MAIN APPLICATION WINDOW CONTAINER
+       ========================================================================= -->
+  <div class="app-window">
+    
+    <!-- Titlebar with macOS / Windows traffic lights and Test Notch button -->
+    <header class="app-titlebar">
+      <div class="traffic-lights">
+        <span class="traffic-dot dot-close"></span>
+        <span class="traffic-dot dot-min"></span>
+        <span class="traffic-dot dot-max"></span>
+      </div>
+      <div class="titlebar-center">
+        <img src="/logo.png" alt="Blink Logo" class="titlebar-logo">
+        <span class="titlebar-title">Blink Biometrics</span>
+      </div>
+      <div class="titlebar-actions">
+        <button id="btnTestNotch" class="btn-pill btn-pill-accent" title="Simulate Lockscreen Dynamic Island Card">
+          <span class="pulse-indicator"></span>
+          <span>Test Dynamic Island</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="app-body">
+      <!-- =====================================================================
+           SIDEBAR NAVIGATION (4 TABS)
+           ===================================================================== -->
+      <nav class="app-sidebar">
+        <div class="sidebar-brand">
+          <div class="brand-avatar">
+            <img src="/logo.png" alt="Blink">
+          </div>
+          <div class="brand-info">
+            <h1 class="brand-name">Blink</h1>
+            <span class="brand-badge">Apple Face ID</span>
+          </div>
+        </div>
+
+        <ul class="sidebar-menu">
+          <li class="menu-item active" data-tab="tab-diagnostics">
+            <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/>
+            </svg>
+            <span class="menu-label">Diagnostics</span>
+          </li>
+          <li class="menu-item" data-tab="tab-camera">
+            <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+              <circle cx="12" cy="13" r="4"/>
+            </svg>
+            <span class="menu-label">Camera</span>
+          </li>
+          <li class="menu-item" data-tab="tab-faceid">
+            <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 3H5a2 2 0 0 0-2 2v4m18-6h-4a2 2 0 0 0-2 2v4M3 15v4a2 2 0 0 0 2 2h4m14-6v4a2 2 0 0 1-2 2h-4"/>
+              <circle cx="9" cy="9" r="1"/>
+              <circle cx="15" cy="9" r="1"/>
+              <path d="M10 15c.8.6 1.8 1 2.9 1 1.1 0 2.1-.4 2.9-1"/>
+            </svg>
+            <span class="menu-label">Face ID</span>
+          </li>
+          <li class="menu-item" data-tab="tab-about">
+            <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="16" x2="12" y2="12"/>
+              <line x1="12" y1="8" x2="12.01" y2="8"/>
+            </svg>
+            <span class="menu-label">About</span>
+          </li>
+        </ul>
+
+        <div class="sidebar-footer">
+          <div class="security-chip">
+            <span class="chip-dot"></span>
+            <span class="chip-text">100% On-Device Neural Engine</span>
+          </div>
+        </div>
+      </nav>
+
+      <!-- =====================================================================
+           CONTENT AREA
+           ===================================================================== -->
+      <main class="app-content">
+
+        <!-- TAB 1: DIAGNOSTICS -->
+        <section id="tab-diagnostics" class="tab-pane active">
+          <div class="pane-header">
+            <h2 class="pane-title">Neural Diagnostics</h2>
+            <p class="pane-subtitle">Real-time performance metrics and biometric engine telemetry.</p>
+          </div>
+
+          <div class="metrics-grid">
+            <div class="glass-card metric-card">
+              <div class="metric-icon-wrap" style="color: #34c759;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+              </div>
+              <div class="metric-meta">
+                <span class="metric-value" id="valLatency">14.2 ms</span>
+                <span class="metric-label">Neural Inference Latency</span>
+              </div>
+            </div>
+
+            <div class="glass-card metric-card">
+              <div class="metric-icon-wrap" style="color: #0071e3;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+              </div>
+              <div class="metric-meta">
+                <span class="metric-value" id="valFramerate">60 FPS</span>
+                <span class="metric-label">Pipeline Refresh Rate</span>
+              </div>
+            </div>
+
+            <div class="glass-card metric-card">
+              <div class="metric-icon-wrap" style="color: #ff9f0a;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              </div>
+              <div class="metric-meta">
+                <span class="metric-value" id="valLiveness">PASS (0.94)</span>
+                <span class="metric-label">Anti-Spoofing Liveness</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="glass-card settings-group-card">
+            <h3 class="card-title">Biometric Parameters</h3>
+            
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Matching Confidence Threshold</span>
+                <span class="setting-desc">Minimum cosine similarity required to trigger system unlock.</span>
+              </div>
+              <div class="setting-ctrl">
+                <input type="range" id="thresholdSlider" min="40" max="85" value="60" class="apple-slider">
+                <span id="thresholdVal" class="slider-badge">60%</span>
+              </div>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Detection Timeout</span>
+                <span class="setting-desc">Maximum seconds camera scans before returning to standby.</span>
+              </div>
+              <div class="setting-ctrl">
+                <select id="timeoutSelect" class="apple-select">
+                  <option value="3">3 Seconds (Instant)</option>
+                  <option value="5" selected>5 Seconds (Recommended)</option>
+                  <option value="8">8 Seconds (Extended)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Anti-Spoofing Liveness Strictness</span>
+                <span class="setting-desc">Multi-cue inspection against printed photos and digital screens.</span>
+              </div>
+              <div class="setting-ctrl">
+                <div class="segmented-control">
+                  <button class="seg-btn active" data-val="light">Light</button>
+                  <button class="seg-btn" data-val="heavy">Heavy</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 2: CAMERA -->
+        <section id="tab-camera" class="tab-pane">
+          <div class="pane-header">
+            <h2 class="pane-title">Camera & Whole-Sensor HUD</h2>
+            <p class="pane-subtitle">Live 106-point facial mesh alignment and pose vector telemetry.</p>
+          </div>
+
+          <div class="glass-card camera-viewport-card">
+            <div class="camera-stream-wrapper">
+              <img id="cameraStreamImg" src="/api/camera/stream" alt="Live Camera HUD">
+              <div class="camera-hud-overlay">
+                <div class="hud-tag top-left">YuNet CNN • 106 Landmark Mesh</div>
+                <div class="hud-tag top-right" id="hudStatus">READY</div>
+                <div class="hud-tag bottom-left" id="hudPose">Yaw: 0.0° • Pitch: 0.0° • Roll: 0.0°</div>
+                <div class="hud-tag bottom-right" id="hudFps">Camera: 30 FPS</div>
+              </div>
+            </div>
+
+            <div class="camera-controls-bar">
+              <div class="camera-device-select-row">
+                <label for="cameraSelect">Active Camera Device:</label>
+                <select id="cameraSelect" class="apple-select">
+                  <option value="0">Default Webcam (Device Index 0)</option>
+                  <option value="1">Secondary Webcam (Device Index 1)</option>
+                </select>
+              </div>
+              <button id="btnRefreshCam" class="btn-pill">Refresh Sensor</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 3: FACE ID -->
+        <section id="tab-faceid" class="tab-pane">
+          <div class="pane-header">
+            <div>
+              <h2 class="pane-title">Face ID Identities</h2>
+              <p class="pane-subtitle">Manage enrolled facial profiles and biometric credentials.</p>
+            </div>
+            <button id="btnOpenEnroll" class="btn-pill btn-pill-accent">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;margin-right:6px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              <span>Enroll New Face</span>
+            </button>
+          </div>
+
+          <div class="glass-card settings-group-card">
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Enable Face ID Biometric Unlock</span>
+                <span class="setting-desc">Automatically unlock your desktop when your face is recognized.</span>
+              </div>
+              <div class="setting-ctrl">
+                <label class="apple-switch">
+                  <input type="checkbox" id="toggleFaceUnlock">
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Desktop Unlock Password</span>
+                <span class="setting-desc">Stored locally with hardware-bound AES-256-GCM encryption.</span>
+              </div>
+              <div class="setting-ctrl">
+                <button id="btnSetPassword" class="btn-pill">Change Password</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="glass-card profiles-table-card">
+            <h3 class="card-title">Enrolled Profiles (<span id="profileCount">0</span>)</h3>
+            <div id="profilesList" class="profiles-list">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 4: ABOUT -->
+        <section id="tab-about" class="tab-pane">
+          <div class="glass-card about-hero-card">
+            <img src="/logo.png" alt="Blink" class="about-hero-logo">
+            <h2 class="about-hero-title">Blink Face ID</h2>
+            <span class="about-version">Version 2.1.0 • Final Release</span>
+            <p class="about-hero-text">
+              Apple-grade biometric facial authentication for Linux and Windows 10/11 desktops.
+              Designed with 100% on-device neural inference, sub-20ms unlock speeds, and zero cloud telemetry.
+            </p>
+            <div class="about-badges">
+              <span class="badge-tag">YuNet CNN Detector</span>
+              <span class="badge-tag">ArcFace 512-D MobileFaceNet</span>
+              <span class="badge-tag">AES-256-GCM Encrypted</span>
+              <span class="badge-tag">GPLv3 Open Source</span>
+            </div>
+          </div>
+
+          <div class="glass-card settings-group-card" style="margin-top: 20px;">
+            <h3 class="card-title">Windows Lockscreen Optimization</h3>
+            <p class="setting-desc" style="margin-bottom: 16px;">
+              On Windows 10/11, Blink waits quietly on the clock wallpaper and activates face recognition the instant you press <strong>Enter</strong> or click to reveal the password prompt.
+            </p>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Trigger on Password Prompt (Enter Key)</span>
+                <span class="setting-desc">Prevents unnecessary camera wakeups while system is locked and untouched.</span>
+              </div>
+              <div class="setting-ctrl">
+                <span class="badge-tag" style="background: rgba(52, 199, 89, 0.2); color: #34c759;">Active</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       APPLE FACE ID CIRCULAR ENROLLMENT MODAL
+       ========================================================================= -->
+  <div id="enrollModal" class="modal-backdrop hidden">
+    <div class="glass-card enrollment-card">
+      <button id="btnCloseEnroll" class="modal-close-btn">&times;</button>
+      
+      <div class="enroll-header">
+        <h2 class="enroll-title">Set Up Face ID</h2>
+        <p id="poseInstruction" class="enroll-subtitle">Position your face in the circle.</p>
+      </div>
+
+      <!-- 64-Tick Apple Face ID Radial Aperture Ring -->
+      <div class="aperture-container">
+        <svg id="apertureRingSvg" class="aperture-ring-svg" viewBox="0 0 320 320">
+          <!-- 64 Ticks generated dynamically via JS -->
+        </svg>
+        <div class="aperture-camera-circle">
+          <img id="enrollLiveFeed" src="/api/camera/stream" alt="Live Feed">
+          <div id="enrollTickCelebration" class="celebration-overlay hidden">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#34c759" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pose Status Guidance Badges -->
+      <div class="pose-badges-row">
+        <span class="pose-badge" id="badge-center">1. Center</span>
+        <span class="pose-badge" id="badge-left">2. Left</span>
+        <span class="pose-badge" id="badge-right">3. Right</span>
+        <span class="pose-badge" id="badge-up">4. Up</span>
+        <span class="pose-badge" id="badge-down">5. Down</span>
+      </div>
+
+      <!-- Profile Name and Save -->
+      <div class="enroll-footer">
+        <input type="text" id="enrollProfileName" placeholder="Profile Name (e.g. My Face)" class="apple-input">
+        <button id="btnSaveEnrollment" class="btn-pill btn-pill-accent" disabled>
+          <span>Complete Enrollment</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

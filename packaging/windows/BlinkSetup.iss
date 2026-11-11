@@ -47,6 +47,11 @@ Name: "startupdaemon"; Description: "Automatically start Face ID unlock service 
 [Files]
 ; Dist folder produced by PyInstaller
 Source: "..\..\dist\Blink\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\blink\resources\appicon.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\blink\resources\*"; DestDir: "{app}\blink\resources"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\blink\resources\*"; DestDir: "{app}\resources"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\blink\resources\*"; DestDir: "{app}\_internal\blink\resources"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\blink\resources\*"; DestDir: "{app}\_internal\resources"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\..\models\face_detection_yunet.onnx"; DestDir: "{app}\models"; Flags: ignoreversion
 Source: "..\..\models\w600k_mbf.onnx"; DestDir: "{app}\models"; Flags: ignoreversion
 Source: "..\..\models\face_detection_yunet.onnx"; DestDir: "{app}\_internal\models"; Flags: ignoreversion
@@ -56,11 +61,11 @@ Source: "..\..\models\w600k_mbf.onnx"; DestDir: "{app}\_internal\blink\models"; 
 
 [Icons]
 ; Start Menu launcher
-Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: "settings"; IconFilename: "{app}\blink\resources\appicon.ico"
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: "settings"; IconFilename: "{app}\appicon.ico"
 ; Desktop launcher
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: "settings"; IconFilename: "{app}\blink\resources\appicon.ico"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: "settings"; IconFilename: "{app}\appicon.ico"; Tasks: desktopicon
 ; Background Daemon Autostart on Logon
-Name: "{autostartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: "daemon"; IconFilename: "{app}\blink\resources\appicon.ico"; Tasks: startupdaemon
+Name: "{autostartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: "daemon"; IconFilename: "{app}\appicon.ico"; Tasks: startupdaemon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Parameters: "settings"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent

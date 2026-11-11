@@ -107,6 +107,16 @@ class FaceUnlockCoordinator:
         self.has_armed_for_current_lock = False
         self.has_auto_retried_for_current_lock = False
         self.cancel_scan()
+
+        if IS_WINDOWS:
+            # On Windows 10/11, the initial lock screen displays the clock / wallpaper curtain.
+            # The password / PIN credential prompt does NOT exist or accept input until
+            # the user presses Enter (or Space / interacts) to dismiss the clock curtain.
+            # Therefore, Blink stays idle on the clock screen and only begins
+            # face recognition when the user presses Enter to reveal the credential prompt.
+            print("[Coordinator] (Windows) Screen locked on clock wallpaper. Awaiting Enter/Space to scan.")
+            return
+
         self._wake_screensaver_dialog()
 
         if "on_lock" in self.settings.unlock_triggers:
@@ -136,6 +146,11 @@ class FaceUnlockCoordinator:
             return
 
         self.has_armed_for_current_lock = False
+
+        if IS_WINDOWS:
+            print("[Coordinator] (Windows) Wake detected. Awaiting Enter/Space on lockscreen to scan.")
+            return
+
         self._wake_screensaver_dialog()
 
         if "on_wake" in self.settings.unlock_triggers:
@@ -174,7 +189,7 @@ class FaceUnlockCoordinator:
         self.cancel_scan()
 
     def _handle_lockscreen_activity(self) -> None:
-        """Called when user activity (mouse/keyboard) is detected on an already locked screen."""
+        """Called when user activity (Enter/Space/mouse) is detected on an already locked screen."""
         self.settings = BlinkSettings.load()
         if not self.settings.is_face_unlock_enabled:
             return
@@ -182,11 +197,17 @@ class FaceUnlockCoordinator:
             return
         if self.camera.is_running:
             return
-        if "on_space" not in self.settings.unlock_triggers and "on_activity" not in self.settings.unlock_triggers:
+        if not IS_WINDOWS and ("on_space" not in self.settings.unlock_triggers and "on_activity" not in self.settings.unlock_triggers):
             print("[Coordinator] Lockscreen activity detected, but space/activity trigger is disabled. Ignoring.")
             return
-        print("[Coordinator] Detected user activity on locked screen. Triggering scan...")
-        self._wake_screensaver_dialog()
+
+        print("[Coordinator] Detected user activity/Enter on locked screen. Initiating scan cycle...")
+        if IS_WINDOWS:
+            # Allow 150ms for Windows lockscreen curtain transition to expose password field
+            time.sleep(0.15)
+        else:
+            self._wake_screensaver_dialog()
+
         self.arm_and_scan(auto_scan=True)
 
     def arm_and_scan(self, auto_scan: bool = True) -> None:

@@ -13,6 +13,8 @@ added_files = [
     (os.path.join(PROJECT_ROOT, "models", "w600k_mbf.onnx"), "blink/models"),
     (os.path.join(PROJECT_ROOT, "blink", "resources"), "blink/resources"),
     (os.path.join(PROJECT_ROOT, "blink", "resources"), "resources"),
+    (os.path.join(PROJECT_ROOT, "blink", "ui", "web"), "blink/ui/web"),
+    (os.path.join(PROJECT_ROOT, "blink", "ui", "web"), "ui/web"),
 ]
 
 hidden_imports = [
@@ -32,7 +34,12 @@ hidden_imports = [
     "ctypes.wintypes",
     "onnxruntime",
     "urllib.request",
+    "http.server",
+    "socketserver",
+    "webbrowser",
+    "mimetypes",
     "blink.core.paths",
+    "blink.ui.web_server",
     "blink.ui.settings_window_win",
     "blink.ui.notch_overlay_win",
     "blink.system.lock_monitor_win",

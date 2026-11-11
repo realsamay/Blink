@@ -94,10 +94,10 @@ def run_daemon():
 
 
 def run_settings():
-    if IS_WINDOWS and Gtk is None:
+    if IS_WINDOWS or Gtk is None:
         try:
-            from blink.ui.settings_window_win import run_windows_settings
-            run_windows_settings()
+            from blink.ui.web_server import run_web_server
+            run_web_server(port=5050, open_browser=True)
             return
         except Exception as e:
             import traceback
@@ -328,12 +328,29 @@ def run_test_scan():
         Gtk.main()
 
 
+def run_web_preview(port: int = 5050):
+    """Launches the 1:1 Apple-Grade Web Interface & Localhost Preview."""
+    try:
+        from blink.ui.web_server import run_web_server
+        run_web_server(port=port, open_browser=True)
+    except Exception as e:
+        print(f"Failed to launch web preview: {e}")
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Blink: Native Face ID for Linux")
+    if IS_WINDOWS:
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("realsamay.blink.faceid.2.1")
+        except Exception:
+            pass
+    parser = argparse.ArgumentParser(description="Blink: Native Face ID")
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     subparsers.add_parser("daemon", help="Run Blink face unlock background daemon")
     subparsers.add_parser("settings", help="Open Blink Settings & Face Lab GUI")
+    subparsers.add_parser("preview", help="Preview Blink 1:1 Apple Web UI on localhost:5050")
+    subparsers.add_parser("web", help="Preview Blink 1:1 Apple Web UI on localhost:5050")
     subparsers.add_parser("status", help="Show current Blink status and configuration")
     subparsers.add_parser("autostart", help="Configure Blink to launch on user login")
     subparsers.add_parser("install-desktop", help="Install Blink into system application menu and desktop")
@@ -341,7 +358,9 @@ def main():
 
     args = parser.parse_args()
 
-    if args.command == "settings":
+    if args.command in ("preview", "web"):
+        run_web_preview()
+    elif args.command == "settings":
         run_settings()
     elif args.command == "status":
         run_status()

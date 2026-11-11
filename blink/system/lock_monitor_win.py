@@ -242,15 +242,25 @@ class WindowsLockMonitor:
             print(f"[WindowsLockMonitor] Message loop error: {e}")
 
     def _poll_loop(self) -> None:
-        """Polls for screen lock changes and user interaction at the lockscreen."""
+        """
+        Polls for screen lock changes and user interaction (Enter / Space keypress) at the lockscreen.
+        On Windows 10/11, the initial lock screen shows the clock wallpaper. When the user presses
+        Enter or Space, Windows raises the credential provider (password/PIN box). Blink detects
+        this keydown event via GetAsyncKeyState across desktop boundaries to trigger face recognition.
+        """
         last_lock_state = self.is_screen_locked
+        enter_was_down = False
+        space_was_down = False
+
         while self._running:
-            time.sleep(0.12)
+            time.sleep(0.04)  # 40ms polling for responsive key detection
             try:
                 locked = self.is_screen_actually_locked()
                 if locked != last_lock_state:
                     last_lock_state = locked
                     self.is_screen_locked = locked
+                    enter_was_down = False
+                    space_was_down = False
                     if locked:
                         print("[WindowsLockMonitor] Poller detected screen locked.")
                         if self.on_locked:
@@ -260,10 +270,25 @@ class WindowsLockMonitor:
                         if self.on_unlocked:
                             self.on_unlocked()
 
-                # User activity detection at lockscreen
+                # User interaction detection at lockscreen
                 if self.is_screen_locked and self.on_activity:
+                    # 1. Direct Enter / Space key detection via GetAsyncKeyState
+                    if hasattr(ctypes, "windll") and hasattr(ctypes.windll, "user32"):
+                        u32 = ctypes.windll.user32
+                        enter_is_down = bool(u32.GetAsyncKeyState(0x0D) & 0x8000)
+                        space_is_down = bool(u32.GetAsyncKeyState(0x20) & 0x8000)
+
+                        if (enter_is_down and not enter_was_down) or (space_is_down and not space_was_down):
+                            key_name = "Enter" if enter_is_down else "Space"
+                            print(f"[WindowsLockMonitor] User pressed {key_name} on lockscreen! Activating Face ID scan...")
+                            self.on_activity()
+
+                        enter_was_down = enter_is_down
+                        space_was_down = space_is_down
+
+                    # 2. General mouse/keyboard idle reset fallback
                     idle_ms = get_system_idle_ms()
-                    if self._last_poll_idle > 600 and idle_ms < 300:
+                    if self._last_poll_idle > 600 and idle_ms < 200:
                         print(f"[WindowsLockMonitor] Detected user interaction on lockscreen (idle reset: {self._last_poll_idle}ms -> {idle_ms}ms).")
                         self.on_activity()
                     self._last_poll_idle = idle_ms
