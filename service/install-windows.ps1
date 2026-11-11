@@ -55,9 +55,11 @@ if (-not (Test-Path ".venv")) {
 $venvPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
 $venvPip = Join-Path $projectRoot ".venv\Scripts\pip.exe"
 
-Write-Host "[*] Upgrading pip and installing dependencies..." -ForegroundColor Yellow
-& $venvPip install --upgrade pip
-& $venvPip install opencv-python numpy cryptography pillow onnxruntime
+Write-Host "[*] Installing core dependencies (NumPy, Pillow, Cryptography)..." -ForegroundColor Yellow
+& $venvPip install --prefer-binary --no-warn-script-location numpy pillow cryptography packaging protobuf
+
+Write-Host "[*] Installing vision & neural runtime (OpenCV, ONNX Runtime)..." -ForegroundColor Yellow
+& $venvPip install --prefer-binary --no-warn-script-location --no-deps onnxruntime opencv-python
 
 # 3. Model Verification
 $modelsDir = Join-Path $projectRoot "models"

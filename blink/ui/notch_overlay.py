@@ -16,45 +16,52 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable, Optional, List, Tuple
 
-import cairo
 import cv2
 import numpy as np
 
 from blink.system.platform_info import IS_WINDOWS
 
 if IS_WINDOWS:
+    cairo = None
+    _X11_DISP = None
+    x11 = None
+    Gtk = type("Gtk", (), {"Window": object})
+    Gdk = None
+    GLib = None
+    GdkPixbuf = None
     from blink.ui.notch_overlay_win import (
         WindowsNotchOverlayWindow as NotchOverlayWindow,
         AnimationAssets,
         OverlayPhase,
     )
 else:
+    import cairo
     import gi
     gi.require_version("Gtk", "3.0")
     gi.require_version("Gdk", "3.0")
     gi.require_version("GdkPixbuf", "2.0")
     from gi.repository import Gtk, Gdk, GLib, GdkPixbuf
 
-try:
-    x11 = ctypes.cdll.LoadLibrary("libX11.so.6")
-    x11.XOpenDisplay.restype = ctypes.c_void_p
-    x11.XReparentWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_int, ctypes.c_int]
-    x11.XRaiseWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
-    x11.XMapWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
-    x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
-    x11.XDefaultRootWindow.restype = ctypes.c_ulong
-    x11.XFlush.argtypes = [ctypes.c_void_p]
-    _X11_DISP = x11.XOpenDisplay(None)
+    try:
+        x11 = ctypes.cdll.LoadLibrary("libX11.so.6")
+        x11.XOpenDisplay.restype = ctypes.c_void_p
+        x11.XReparentWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_int, ctypes.c_int]
+        x11.XRaiseWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+        x11.XMapWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+        x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+        x11.XDefaultRootWindow.restype = ctypes.c_ulong
+        x11.XFlush.argtypes = [ctypes.c_void_p]
+        _X11_DISP = x11.XOpenDisplay(None)
 
-    # Resilient X11 error handler
-    XErrorHandler = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
-    def _py_x_error_handler(display, error_event):
-        return 0
-    _c_handler = XErrorHandler(_py_x_error_handler)
-    x11.XSetErrorHandler(_c_handler)
-except Exception:
-    x11 = None
-    _X11_DISP = None
+        # Resilient X11 error handler
+        XErrorHandler = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
+        def _py_x_error_handler(display, error_event):
+            return 0
+        _c_handler = XErrorHandler(_py_x_error_handler)
+        x11.XSetErrorHandler(_c_handler)
+    except Exception:
+        x11 = None
+        _X11_DISP = None
 
 RESOURCES_DIR = Path(__file__).resolve().parent.parent / "resources"
 

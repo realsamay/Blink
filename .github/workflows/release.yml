@@ -72,6 +72,11 @@ jobs:
         run: |
           pyinstaller packaging/windows/blink.spec
 
+      - name: Create Portable Zip Package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/Blink/* -DestinationPath dist/Blink-v2.1.0-Windows.zip -Force
+
       - name: Build Inno Setup Installer (.exe)
         shell: cmd
         run: |
@@ -80,11 +85,13 @@ jobs:
           )
           "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\windows\BlinkSetup.iss
 
-      - name: Upload Windows .exe Artifact
+      - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: blink-windows-exe
-          path: dist/Blink-Setup-x64.exe
+          name: blink-windows-artifacts
+          path: |
+            dist/Blink-Setup-x64.exe
+            dist/Blink-v2.1.0-Windows.zip
 
   # -------------------------------------------------------------
   # Job 3: Publish to GitHub Releases
@@ -104,10 +111,10 @@ jobs:
           name: blink-linux-deb
           path: dist
 
-      - name: Download Windows Artifact
+      - name: Download Windows Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: blink-windows-exe
+          name: blink-windows-artifacts
           path: dist
 
       - name: Determine Release Tag
@@ -129,6 +136,7 @@ jobs:
           files: |
             dist/*.deb
             dist/*.exe
+            dist/*.zip
           body: |
             ### Blink Biometric Screen Unlock (${{ steps.tag_info.outputs.tag }})
             

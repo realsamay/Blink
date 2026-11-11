@@ -20,12 +20,12 @@ DisableProgramGroupPage=yes
 OutputBaseFilename=Blink-Setup-x64
 OutputDir=..\..\dist
 SetupIconFile=..\..\blink\resources\appicon.ico
-Compression=lzma2/ultra64
-SolidCompression=yes
+Compression=lzma2/max
+SolidCompression=no
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64
-PrivilegesRequired=admin
-PrivilegesRequiredOverridesAllowed=dialog
+PrivilegesRequired=lowest
+PrivilegesRequiredOverridesAllowed=commandline
 UsePreviousAppDir=yes
 DirExistsWarning=no
 
