@@ -187,6 +187,25 @@ class WindowsNotchOverlayWindow:
             kernel32 = ctypes.windll.kernel32
             gdi32 = ctypes.windll.gdi32
 
+            user32.DefWindowProcW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+            user32.DefWindowProcW.restype = wintypes.LPARAM
+
+            user32.CreateWindowExW.argtypes = [
+                wintypes.DWORD,
+                wintypes.LPCWSTR,
+                wintypes.LPCWSTR,
+                wintypes.DWORD,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                wintypes.HWND,
+                wintypes.HMENU,
+                wintypes.HINSTANCE,
+                wintypes.LPVOID,
+            ]
+            user32.CreateWindowExW.restype = wintypes.HWND
+
             WNDPROC = ctypes.WINFUNCTYPE(
                 wintypes.LPARAM,
                 wintypes.HWND,

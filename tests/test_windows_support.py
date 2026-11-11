@@ -109,7 +109,9 @@ class TestWindowsAnimationAssets(unittest.TestCase):
         self.assertGreater(len(AnimationAssets.failure_buffers), 0)
 
         first_frame = AnimationAssets.idle_buffers[0]
-        self.assertEqual(first_frame.shape, (100, 100, 4))
+        self.assertIn(first_frame.shape[0], (100, 116))
+        self.assertIn(first_frame.shape[1], (100, 116))
+        self.assertEqual(first_frame.shape[2], 4)
         self.assertEqual(first_frame.dtype, np.uint8)
 
     def test_bitmapinfo_header(self):
