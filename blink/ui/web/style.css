@@ -49,28 +49,27 @@ body.apple-theme {
 }
 
 /* ==============================================================================
-   DYNAMIC ISLAND NOTCH OVERLAY CARD (FLOATING TEST POP-OUT)
+   DYNAMIC ISLAND NOTCH OVERLAY CARD (100% 1:1 LINUX & WINDOWS PARITY)
    ============================================================================== */
 .dynamic-island-card {
   position: fixed;
   top: 14px;
   left: 50%;
-  transform: translateX(-50%) translateY(-70px);
+  transform: translateX(-50%) translateY(-170px);
   width: 148px;
   height: 148px;
-  background: rgba(10, 8, 8, 0.96);
+  background: rgba(8, 5, 5, 0.98);
   border-radius: 28px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.12);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.12);
   backdrop-filter: blur(40px);
   -webkit-backdrop-filter: blur(40px);
   z-index: 9999;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
   opacity: 0;
   pointer-events: none;
-  transition: transform 0.5s var(--ease-spring), opacity 0.35s ease;
+  transition: transform 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s ease;
 }
 
 .dynamic-island-card.active {
@@ -79,30 +78,15 @@ body.apple-theme {
   pointer-events: auto;
 }
 
-.island-notch-bezel {
-  position: absolute;
-  top: -14px;
-  width: 60px;
-  height: 14px;
-  background: #000;
-  border-radius: 0 0 10px 10px;
-}
-
-.island-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
-
 .island-anim-box {
-  width: 96px;
-  height: 96px;
+  width: 116px;
+  height: 116px;
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: 20px;
+  overflow: hidden;
 }
 
 .island-video {
@@ -110,6 +94,7 @@ body.apple-theme {
   height: 100%;
   object-fit: cover;
   border-radius: 20px;
+  display: block;
 }
 
 /* Procedural Face ID Squircle Glyph */

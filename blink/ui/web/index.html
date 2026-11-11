@@ -12,21 +12,8 @@
        DYNAMIC ISLAND LOCKSCREEN NOTCH CARD (FLOATING TEST OVERLAY)
        ========================================================================= -->
   <div id="dynamicIslandOverlay" class="dynamic-island-card closed">
-    <div class="island-notch-bezel"></div>
-    <div class="island-content">
-      <div id="islandAnimationContainer" class="island-anim-box">
-        <video id="islandVideo" class="island-video" autoplay loop muted playsinline></video>
-        <!-- Procedural Apple Face ID Glyph fallback -->
-        <div id="islandGlyph" class="island-glyph">
-          <div class="face-squircle">
-            <div class="face-eye left"></div>
-            <div class="face-eye right"></div>
-            <div class="face-smile"></div>
-            <div class="face-radar"></div>
-          </div>
-        </div>
-      </div>
-      <div id="islandStatusText" class="island-status">Face ID</div>
+    <div id="islandAnimationContainer" class="island-anim-box">
+      <video id="islandVideo" class="island-video" autoplay loop muted playsinline preload="auto" src="/idleanimation.mp4"></video>
     </div>
   </div>
 
@@ -65,7 +52,7 @@
           </div>
           <div class="brand-info">
             <h1 class="brand-name">Blink</h1>
-            <span class="brand-badge">Apple Face ID</span>
+            <span class="brand-badge">Blink Face ID</span>
           </div>
         </div>
 
@@ -281,7 +268,7 @@
             <h2 class="about-hero-title">Blink Face ID</h2>
             <span class="about-version">Version 2.1.0 • Final Release</span>
             <p class="about-hero-text">
-              Apple-grade biometric facial authentication for Linux and Windows 10/11 desktops.
+              Hardware-grade native biometric facial authentication for Linux and Windows 10/11 desktops.
               Designed with 100% on-device neural inference, sub-20ms unlock speeds, and zero cloud telemetry.
             </p>
             <div class="about-badges">

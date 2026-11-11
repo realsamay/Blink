@@ -342,7 +342,7 @@ def run_web_server(port: int = 5050, open_browser: bool = True):
     server_address = ("0.0.0.0", port)
     httpd = ReusableThreadingHTTPServer(server_address, BlinkWebRequestHandler)
     print(f"\n============================================================")
-    print(f"      BLINK APPLE-GRADE UI RUNNING AT http://localhost:{port}")
+    print(f"      BLINK BIOMETRIC UI RUNNING AT http://localhost:{port}")
     print(f"      Also accessible at http://127.0.0.1:{port}")
     print(f"============================================================\n")
 
@@ -351,10 +351,23 @@ def run_web_server(port: int = 5050, open_browser: bool = True):
         url = f"http://127.0.0.1:{port}"
         # On Windows, try launching msedge in app mode for a frameless native window
         if IS_WINDOWS:
-            try:
-                import subprocess
-                subprocess.Popen(["msedge.exe", f"--app={url}"])
-            except Exception:
+            edge_launched = False
+            edge_candidates = [
+                os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+                os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+                os.path.expandvars(r"%LocalAppData%\Microsoft\Edge\Application\msedge.exe"),
+                "msedge.exe",
+            ]
+            for edge_bin in edge_candidates:
+                try:
+                    import subprocess
+                    if os.path.isfile(edge_bin) or edge_bin == "msedge.exe":
+                        subprocess.Popen([edge_bin, f"--app={url}"])
+                        edge_launched = True
+                        break
+                except Exception:
+                    continue
+            if not edge_launched:
                 webbrowser.open(url)
         else:
             # On Linux, try Chrome/Chromium --app mode, fallback to default browser

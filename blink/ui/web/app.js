@@ -102,38 +102,29 @@ function initDynamicIsland() {
   const btnTest = document.getElementById("btnTestNotch");
   const overlay = document.getElementById("dynamicIslandOverlay");
   const video = document.getElementById("islandVideo");
-  const glyph = document.getElementById("islandGlyph");
-  const statusText = document.getElementById("islandStatusText");
 
-  if (!btnTest || !overlay) return;
+  if (!btnTest || !overlay || !video) return;
 
   btnTest.addEventListener("click", () => {
-    // Reveal Dynamic Island
+    // 1. Reveal overlay with fluid vertical slide down from top bezel
     overlay.classList.add("active");
-    statusText.textContent = "Face ID";
 
-    // Attempt video playback
+    // 2. Play exact Linux idle biometric scanning animation
     video.src = "/idleanimation.mp4";
-    video.play().then(() => {
-      glyph.style.display = "none";
-    }).catch(() => {
-      // Procedural glyph fallback
-      glyph.style.display = "flex";
-    });
+    video.currentTime = 0;
+    video.play().catch(() => {});
 
-    // Simulate scanning -> success cycle
+    // 3. After 1.8s of scanning, transition to exact Linux unlock checkmark animation
     setTimeout(() => {
-      statusText.textContent = "Unlocked";
-      statusText.style.color = "#34c759";
       video.src = "/unlockanimation.mp4";
+      video.currentTime = 0;
       video.play().catch(() => {});
 
+      // 4. After 1.2s of unlock confirmation, smoothly slide back up
       setTimeout(() => {
-        // Dismiss smoothly
         overlay.classList.remove("active");
         setTimeout(() => {
-          statusText.textContent = "Face ID";
-          statusText.style.color = "#ffffff";
+          video.src = "/idleanimation.mp4";
         }, 500);
       }, 1200);
     }, 1800);
