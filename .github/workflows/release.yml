@@ -25,10 +25,8 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install system build dependencies
+      - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y dpkg-dev python3-opencv python3-numpy python3-cryptography libxss1 libx11-6
           python -m pip install --upgrade pip
           pip install opencv-python-headless pillow
 
