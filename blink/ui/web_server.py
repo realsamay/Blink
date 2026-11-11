@@ -17,16 +17,33 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
-import cv2
-import numpy as np
+try:
+    import cv2
+    import numpy as np
+    HAS_CV2 = True
+except ImportError:
+    cv2 = None
+    np = None
+    HAS_CV2 = False
 
 from blink.core.config import BlinkSettings
 from blink.core.crypto import SecureCredentialManager, SecureFaceStore
 from blink.core.paths import get_resources_dir, get_resource_path
 from blink.system.platform_info import IS_WINDOWS
-from blink.vision.camera import CameraManager
-from blink.vision.detector import FaceDetector, DetectedFace
-from blink.vision.embedder import ArcFaceEmbedder
+
+if HAS_CV2:
+    try:
+        from blink.vision.camera import CameraManager
+        from blink.vision.detector import FaceDetector, DetectedFace
+        from blink.vision.embedder import ArcFaceEmbedder
+    except Exception:
+        CameraManager = None
+        FaceDetector = None
+        ArcFaceEmbedder = None
+else:
+    CameraManager = None
+    FaceDetector = None
+    ArcFaceEmbedder = None
 
 def get_web_dir() -> Path:
     """Universally resolves the web UI static files directory across dev and PyInstaller."""
@@ -243,6 +260,13 @@ class BlinkWebRequestHandler(BaseHTTPRequestHandler):
 
     def _handle_camera_stream(self):
         """Streams real-time MJPEG camera frames with 106-point HUD overlays."""
+        if not HAS_CV2 or CameraManager is None or FaceDetector is None:
+            self.send_response(200)
+            self.send_header("Content-Type", "image/svg+xml")
+            self.end_headers()
+            self.wfile.write(b'<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="100%" height="100%" fill="#0a0a0c"/><text x="50%" y="50%" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" text-anchor="middle">Camera Sensor Feed (Simulator Mode)</text></svg>')
+            return
+
         self.send_response(200)
         self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
         self.send_header("Cache-Control", "no-cache")
