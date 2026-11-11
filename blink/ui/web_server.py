@@ -13,7 +13,7 @@ import sys
 import threading
 import time
 import webbrowser
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
@@ -117,6 +117,9 @@ class BlinkWebRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # Suppress verbose HTTP access logs in console
         pass
+
+    def do_HEAD(self):
+        self.do_GET()
 
     def do_GET(self):
         url_path = self.path.split("?")[0]
@@ -329,12 +332,18 @@ class BlinkWebRequestHandler(BaseHTTPRequestHandler):
                 time.sleep(0.05)
 
 
+class ReusableThreadingHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+
 def run_web_server(port: int = 5050, open_browser: bool = True):
     """Starts the Blink local preview web server on http://localhost:port."""
-    server_address = ("127.0.0.1", port)
-    httpd = HTTPServer(server_address, BlinkWebRequestHandler)
+    server_address = ("0.0.0.0", port)
+    httpd = ReusableThreadingHTTPServer(server_address, BlinkWebRequestHandler)
     print(f"\n============================================================")
     print(f"      BLINK APPLE-GRADE UI RUNNING AT http://localhost:{port}")
+    print(f"      Also accessible at http://127.0.0.1:{port}")
     print(f"============================================================\n")
 
     if open_browser:
@@ -372,10 +381,10 @@ def start_server_background(port: int = 5050):
     global _server_instance, _server_thread
     if _server_instance is not None:
         return
-    _server_instance = HTTPServer(("127.0.0.1", port), BlinkWebRequestHandler)
+    _server_instance = ReusableThreadingHTTPServer(("0.0.0.0", port), BlinkWebRequestHandler)
     _server_thread = threading.Thread(target=_server_instance.serve_forever, daemon=True, name="BlinkWebServerThread")
     _server_thread.start()
-    print(f"[Web] Background server running on http://127.0.0.1:{port}")
+    print(f"[Web] Background server running on http://127.0.0.1:{port} and http://localhost:{port}")
 
 
 if __name__ == "__main__":
