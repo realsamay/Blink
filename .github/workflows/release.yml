@@ -70,6 +70,18 @@ jobs:
         run: |
           pyinstaller packaging/windows/blink.spec
 
+      - name: Generate Code Signing Certificate & Sign Binary
+        shell: pwsh
+        run: |
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Blink Biometrics, O=Blink, C=US" -CertStoreLocation "Cert:\CurrentUser\My" -NotAfter (Get-Date).AddYears(5)
+          $pfxPass = ConvertTo-SecureString -String "BlinkSecure2026!" -Force -AsPlainText
+          Export-PfxCertificate -Cert $cert -FilePath "blink_codesign.pfx" -Password $pfxPass
+          $signtool = (Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Filter "signtool.exe" -Recurse | Where-Object { $_.FullName -like "*x64*" } | Select-Object -First 1).FullName
+          if ($signtool) {
+            Write-Host "Signing dist/Blink/blink.exe with $signtool..."
+            & $signtool sign /f "blink_codesign.pfx" /p "BlinkSecure2026!" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "dist\Blink\blink.exe"
+          }
+
       - name: Create Portable Zip Package
         shell: pwsh
         run: |
@@ -82,6 +94,15 @@ jobs:
             choco install innosetup --no-progress -y
           )
           "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\windows\BlinkSetup.iss
+
+      - name: Sign Inno Setup Installer
+        shell: pwsh
+        run: |
+          $signtool = (Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Filter "signtool.exe" -Recurse | Where-Object { $_.FullName -like "*x64*" } | Select-Object -First 1).FullName
+          if ($signtool -and (Test-Path "dist\Blink-Setup-x64.exe")) {
+            Write-Host "Signing dist/Blink-Setup-x64.exe with $signtool..."
+            & $signtool sign /f "blink_codesign.pfx" /p "BlinkSecure2026!" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "dist\Blink-Setup-x64.exe"
+          }
 
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4

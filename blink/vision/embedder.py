@@ -10,13 +10,14 @@ import onnxruntime as ort
 from pathlib import Path
 from typing import List, Optional, Tuple, Dict, Any
 
-MODEL_DIR = Path(__file__).resolve().parent.parent / "models"
-ARCFACE_PATH = MODEL_DIR / "w600k_mbf.onnx"
+from blink.core.paths import get_model_path
+
+ARCFACE_PATH = get_model_path("w600k_mbf.onnx")
 
 
 class ArcFaceEmbedder:
     def __init__(self, model_path: Optional[Path] = None):
-        path = model_path or ARCFACE_PATH
+        path = model_path or get_model_path("w600k_mbf.onnx")
         assert path.exists(), f"ArcFace ONNX model missing at {path}"
         opts = ort.SessionOptions()
         opts.intra_op_num_threads = 2

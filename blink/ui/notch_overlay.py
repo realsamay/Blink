@@ -63,7 +63,9 @@ else:
         x11 = None
         _X11_DISP = None
 
-RESOURCES_DIR = Path(__file__).resolve().parent.parent / "resources"
+from blink.core.paths import get_resources_dir, get_resource_path
+
+RESOURCES_DIR = get_resources_dir()
 
 
 class OverlayPhase(Enum):

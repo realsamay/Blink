@@ -20,7 +20,9 @@ import cv2
 import numpy as np
 
 
-RESOURCES_DIR = Path(__file__).resolve().parent.parent / "resources"
+from blink.core.paths import get_resources_dir, get_resource_path
+
+RESOURCES_DIR = get_resources_dir()
 
 # Win32 Constants
 WS_POPUP = 0x80000000
@@ -101,7 +103,7 @@ class AnimationAssets:
                 return
 
             def _load_video(filename: str) -> List[np.ndarray]:
-                path = RESOURCES_DIR / filename
+                path = get_resource_path(filename)
                 bufs = []
                 if not path.is_file():
                     return bufs

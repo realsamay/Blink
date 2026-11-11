@@ -100,7 +100,21 @@ def run_settings():
             run_windows_settings()
             return
         except Exception as e:
-            print(f"[Blink] Notice: {e}. Opening terminal configuration wizard.")
+            import traceback
+            err_msg = f"Failed to start Blink settings UI:\n{e}\n\n{traceback.format_exc()}"
+            print(f"[Blink] Error: {err_msg}")
+
+            # If running in windowed GUI mode without a console, show native Windows alert
+            has_tty = sys.stdin is not None and hasattr(sys.stdin, "isatty") and sys.stdin.isatty()
+            if not has_tty:
+                try:
+                    import ctypes
+                    ctypes.windll.user32.MessageBoxW(0, f"Blink could not start settings:\n\n{e}", "Blink Error", 0x10)
+                except Exception:
+                    pass
+                return
+
+            print("[Blink] Opening terminal configuration wizard.")
             run_terminal_settings()
             return
 
@@ -114,6 +128,11 @@ def run_settings():
 
 def run_terminal_settings():
     """Interactive terminal settings wizard for headless/Windows setups."""
+    has_tty = sys.stdin is not None and hasattr(sys.stdin, "isatty") and sys.stdin.isatty()
+    if not has_tty:
+        print("[Blink] No interactive terminal available (sys.stdin is None). Cannot prompt.")
+        return
+
     settings = BlinkSettings.load()
     print("=" * 50)
     print("          BLINK CONFIGURATION WIZARD")

@@ -3,7 +3,7 @@
 
 #define MyAppName "Blink"
 #define MyAppVersion "2.1.0"
-#define MyAppPublisher "Samay"
+#define MyAppPublisher "Blink Biometrics"
 #define MyAppURL "https://github.com/realsamay/Blink"
 #define MyAppExeName "blink.exe"
 
@@ -29,6 +29,14 @@ PrivilegesRequiredOverridesAllowed=commandline
 UsePreviousAppDir=yes
 DirExistsWarning=no
 
+; Version Information
+VersionInfoVersion=2.1.0.0
+VersionInfoCompany=Blink Biometrics
+VersionInfoDescription=Blink Face ID Biometric Authentication
+VersionInfoCopyright=Copyright (C) 2026 Blink Biometrics. Released under GPLv3.
+VersionInfoProductName=Blink
+VersionInfoProductVersion=2.1.0.0
+
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
@@ -39,6 +47,12 @@ Name: "startupdaemon"; Description: "Automatically start Face ID unlock service 
 [Files]
 ; Dist folder produced by PyInstaller
 Source: "..\..\dist\Blink\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\models\face_detection_yunet.onnx"; DestDir: "{app}\models"; Flags: ignoreversion
+Source: "..\..\models\w600k_mbf.onnx"; DestDir: "{app}\models"; Flags: ignoreversion
+Source: "..\..\models\face_detection_yunet.onnx"; DestDir: "{app}\_internal\models"; Flags: ignoreversion
+Source: "..\..\models\w600k_mbf.onnx"; DestDir: "{app}\_internal\models"; Flags: ignoreversion
+Source: "..\..\models\face_detection_yunet.onnx"; DestDir: "{app}\_internal\blink\models"; Flags: ignoreversion
+Source: "..\..\models\w600k_mbf.onnx"; DestDir: "{app}\_internal\blink\models"; Flags: ignoreversion
 
 [Icons]
 ; Start Menu launcher

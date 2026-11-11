@@ -14,9 +14,10 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
-MODEL_DIR = Path(__file__).resolve().parent.parent / "models"
-YUNET_PATH = MODEL_DIR / "face_detection_yunet.onnx"
-LANDMARKS_106_PATH = MODEL_DIR / "2d106det.onnx"
+from blink.core.paths import get_model_path
+
+YUNET_PATH = get_model_path("face_detection_yunet.onnx")
+LANDMARKS_106_PATH = get_model_path("2d106det.onnx", auto_download=False)
 
 
 @dataclass
@@ -47,9 +48,10 @@ class FaceDetector:
 
         cv2.setNumThreads(2)
 
-        assert YUNET_PATH.exists(), f"YuNet model missing at {YUNET_PATH}"
+        yunet_path = get_model_path("face_detection_yunet.onnx")
+        assert yunet_path.exists(), f"YuNet model missing at {yunet_path}"
         self.detector = cv2.FaceDetectorYN.create(
-            str(YUNET_PATH),
+            str(yunet_path),
             "",
             self._current_input_size,
             score_threshold=score_threshold,
@@ -59,7 +61,8 @@ class FaceDetector:
 
         # 106-point landmark detector for liveness and geometry
         self.landmark_session: Optional[ort.InferenceSession] = None
-        if LANDMARKS_106_PATH.exists():
+        landmarks_path = get_model_path("2d106det.onnx", auto_download=False)
+        if landmarks_path.exists():
             try:
                 opts = ort.SessionOptions()
                 opts.intra_op_num_threads = 2

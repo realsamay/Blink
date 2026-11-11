@@ -30,7 +30,9 @@ from blink.vision.embedder import ArcFaceEmbedder
 from blink.liveness.analyzer import LivenessAnalyzer
 from blink.liveness.cues import LivenessCue, LivenessDecisionKind
 
-RESOURCES_DIR = Path(__file__).resolve().parent.parent / "resources"
+from blink.core.paths import get_resources_dir, get_resource_path
+
+RESOURCES_DIR = get_resources_dir()
 
 
 # ------------------------------------------------------------------------------

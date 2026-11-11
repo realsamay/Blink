@@ -9,7 +9,10 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(SPECPATH), ".."))
 added_files = [
     (os.path.join(PROJECT_ROOT, "models", "face_detection_yunet.onnx"), "models"),
     (os.path.join(PROJECT_ROOT, "models", "w600k_mbf.onnx"), "models"),
+    (os.path.join(PROJECT_ROOT, "models", "face_detection_yunet.onnx"), "blink/models"),
+    (os.path.join(PROJECT_ROOT, "models", "w600k_mbf.onnx"), "blink/models"),
     (os.path.join(PROJECT_ROOT, "blink", "resources"), "blink/resources"),
+    (os.path.join(PROJECT_ROOT, "blink", "resources"), "resources"),
 ]
 
 hidden_imports = [
@@ -28,6 +31,8 @@ hidden_imports = [
     "ctypes",
     "ctypes.wintypes",
     "onnxruntime",
+    "urllib.request",
+    "blink.core.paths",
     "blink.ui.settings_window_win",
     "blink.ui.notch_overlay_win",
     "blink.system.lock_monitor_win",
@@ -68,6 +73,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    version=os.path.join(SPECPATH, "version_info.txt"),
     icon=os.path.join(PROJECT_ROOT, "blink", "resources", "appicon.ico"),
 )
 
