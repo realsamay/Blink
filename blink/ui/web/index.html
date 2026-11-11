@@ -6,7 +6,7 @@
   <title>Blink — Face ID Settings</title>
   <link rel="stylesheet" href="/style.css">
 </head>
-<body class="apple-theme dark-mode">
+<body class="blink-theme dark-mode">
 
   <!-- =========================================================================
        DYNAMIC ISLAND LOCKSCREEN NOTCH CARD (FLOATING TEST OVERLAY)
@@ -150,7 +150,7 @@
                 <span class="setting-desc">Minimum cosine similarity required to trigger system unlock.</span>
               </div>
               <div class="setting-ctrl">
-                <input type="range" id="thresholdSlider" min="40" max="85" value="60" class="apple-slider">
+                <input type="range" id="thresholdSlider" min="40" max="85" value="60" class="blink-slider">
                 <span id="thresholdVal" class="slider-badge">60%</span>
               </div>
             </div>
@@ -161,7 +161,7 @@
                 <span class="setting-desc">Maximum seconds camera scans before returning to standby.</span>
               </div>
               <div class="setting-ctrl">
-                <select id="timeoutSelect" class="apple-select">
+                <select id="timeoutSelect" class="blink-select">
                   <option value="3">3 Seconds (Instant)</option>
                   <option value="5" selected>5 Seconds (Recommended)</option>
                   <option value="8">8 Seconds (Extended)</option>
@@ -205,7 +205,7 @@
             <div class="camera-controls-bar">
               <div class="camera-device-select-row">
                 <label for="cameraSelect">Active Camera Device:</label>
-                <select id="cameraSelect" class="apple-select">
+                <select id="cameraSelect" class="blink-select">
                   <option value="0">Default Webcam (Device Index 0)</option>
                   <option value="1">Secondary Webcam (Device Index 1)</option>
                 </select>
@@ -235,7 +235,7 @@
                 <span class="setting-desc">Automatically unlock your desktop when your face is recognized.</span>
               </div>
               <div class="setting-ctrl">
-                <label class="apple-switch">
+                <label class="blink-switch">
                   <input type="checkbox" id="toggleFaceUnlock">
                   <span class="slider"></span>
                 </label>
@@ -301,7 +301,7 @@
   </div>
 
   <!-- =========================================================================
-       APPLE FACE ID CIRCULAR ENROLLMENT MODAL
+       BLINK FACE ID CIRCULAR ENROLLMENT MODAL
        ========================================================================= -->
   <div id="enrollModal" class="modal-backdrop hidden">
     <div class="glass-card enrollment-card">
@@ -312,7 +312,7 @@
         <p id="poseInstruction" class="enroll-subtitle">Position your face in the circle.</p>
       </div>
 
-      <!-- 64-Tick Apple Face ID Radial Aperture Ring -->
+      <!-- 64-Tick Blink Face ID Radial Aperture Ring -->
       <div class="aperture-container">
         <svg id="apertureRingSvg" class="aperture-ring-svg" viewBox="0 0 320 320">
           <!-- 64 Ticks generated dynamically via JS -->
@@ -336,7 +336,7 @@
 
       <!-- Profile Name and Save -->
       <div class="enroll-footer">
-        <input type="text" id="enrollProfileName" placeholder="Profile Name (e.g. My Face)" class="apple-input">
+        <input type="text" id="enrollProfileName" placeholder="Profile Name (e.g. My Face)" class="blink-input">
         <button id="btnSaveEnrollment" class="btn-pill btn-pill-accent" disabled>
           <span>Complete Enrollment</span>
         </button>

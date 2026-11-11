@@ -1,5 +1,5 @@
 /* ==============================================================================
-   BLINK — APPLE GLASSMORPHIC DARK STYLING (100% 1:1 LINUX & WINDOWS PARITY)
+   BLINK — GLASSMORPHIC DARK STYLING (100% 1:1 LINUX & WINDOWS PARITY)
    ============================================================================== */
 
 :root {
@@ -20,8 +20,8 @@
   --text-secondary: rgba(255, 255, 255, 0.65);
   --text-tertiary: rgba(255, 255, 255, 0.4);
 
-  --font-apple: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --ease-apple: cubic-bezier(0.16, 1, 0.3, 1);
+  --font-main: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --ease-main: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
@@ -33,10 +33,10 @@
   -webkit-user-select: none;
 }
 
-body.apple-theme {
+body.blink-theme {
   background-color: var(--bg-obsidian);
   color: var(--text-primary);
-  font-family: var(--font-apple);
+  font-family: var(--font-main);
   overflow: hidden;
   height: 100vh;
   width: 100vw;
@@ -479,7 +479,7 @@ body.apple-theme {
 }
 
 /* UI Controls */
-.apple-slider {
+.blink-slider {
   -webkit-appearance: none;
   appearance: none;
   width: 140px;
@@ -489,7 +489,7 @@ body.apple-theme {
   outline: none;
 }
 
-.apple-slider::-webkit-slider-thumb {
+.blink-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 18px;
@@ -508,7 +508,7 @@ body.apple-theme {
   min-width: 38px;
 }
 
-.apple-select {
+.blink-select {
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid var(--border-glass);
   color: #fff;
@@ -520,25 +520,25 @@ body.apple-theme {
   cursor: pointer;
 }
 
-.apple-select option {
+.blink-select option {
   background: #1c1c1e;
   color: #fff;
 }
 
-.apple-switch {
+.blink-switch {
   position: relative;
   display: inline-block;
   width: 50px;
   height: 28px;
 }
 
-.apple-switch input {
+.blink-switch input {
   opacity: 0;
   width: 0;
   height: 0;
 }
 
-.apple-switch .slider {
+.blink-switch .slider {
   position: absolute;
   cursor: pointer;
   top: 0; left: 0; right: 0; bottom: 0;
@@ -547,7 +547,7 @@ body.apple-theme {
   border-radius: 28px;
 }
 
-.apple-switch .slider:before {
+.blink-switch .slider:before {
   position: absolute;
   content: "";
   height: 22px;
@@ -560,11 +560,11 @@ body.apple-theme {
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
-.apple-switch input:checked + .slider {
+.blink-switch input:checked + .slider {
   background-color: var(--accent-green);
 }
 
-.apple-switch input:checked + .slider:before {
+.blink-switch input:checked + .slider:before {
   transform: translateX(22px);
 }
 
@@ -805,7 +805,7 @@ body.apple-theme {
 }
 
 /* ==============================================================================
-   APPLE FACE ID CIRCULAR ENROLLMENT MODAL
+   BLINK FACE ID CIRCULAR ENROLLMENT MODAL
    ============================================================================== */
 .modal-backdrop {
   position: fixed;
@@ -963,7 +963,7 @@ body.apple-theme {
   gap: 12px;
 }
 
-.apple-input {
+.blink-input {
   width: 100%;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--border-glass);
@@ -975,7 +975,7 @@ body.apple-theme {
   outline: none;
 }
 
-.apple-input:focus {
+.blink-input:focus {
   border-color: var(--accent-blue);
   box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.25);
 }

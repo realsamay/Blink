@@ -1,5 +1,5 @@
 // ==============================================================================
-// BLINK WEB CLIENT — APPLE FACE ID STATE MACHINE & HUD TELEMETRY
+// BLINK WEB CLIENT — FACE ID STATE MACHINE & HUD TELEMETRY
 // ==============================================================================
 
 const TOTAL_TICKS = 64;
@@ -47,7 +47,7 @@ function initTabs() {
 }
 
 // ------------------------------------------------------------------------------
-// 64-Tick Apple Face ID Circular Aperture Generator
+// 64-Tick Blink Radial Aperture Generator
 // ------------------------------------------------------------------------------
 function initApertureRing() {
   const svg = document.getElementById("apertureRingSvg");
@@ -311,7 +311,7 @@ function deleteProfile(id) {
 }
 
 // ------------------------------------------------------------------------------
-// Apple Face ID 5-Pose Circular Enrollment Flow
+// Blink Face ID 5-Pose Circular Enrollment Flow
 // ------------------------------------------------------------------------------
 function startEnrollmentFlow() {
   currentPoseIdx = 0;
