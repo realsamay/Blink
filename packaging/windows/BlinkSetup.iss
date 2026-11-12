@@ -24,8 +24,11 @@ Compression=lzma2/max
 SolidCompression=no
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64
-PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=commandline
+PrivilegesRequired=admin
+PrivilegesRequiredOverridesAllowed=dialog
+CloseApplications=force
+RestartApplications=no
+UsedUserAreasWarning=no
 UsePreviousAppDir=yes
 DirExistsWarning=no
 

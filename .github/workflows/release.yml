@@ -85,6 +85,8 @@ jobs:
       - name: Create Portable Zip Package
         shell: pwsh
         run: |
+          Copy-Item "packaging/windows/Run-Blink.cmd" -Destination "dist/Blink/" -Force
+          Copy-Item "packaging/windows/Install-Blink.cmd" -Destination "dist/Blink/" -Force
           Compress-Archive -Path dist/Blink/* -DestinationPath dist/Blink-v2.1.0-Windows.zip -Force
 
       - name: Build Inno Setup Installer (.exe)
