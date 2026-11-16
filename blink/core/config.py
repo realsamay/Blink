@@ -22,7 +22,7 @@ SETTINGS_FILE = CONFIG_DIR / "settings.json"
 @dataclass
 class BlinkSettings:
     is_face_unlock_enabled: bool = False
-    match_threshold: float = 0.60
+    match_threshold: float = 0.65
     face_detection_seconds: int = 5
     liveness_checks_enabled: bool = True
     liveness_mode: str = "light"  # "light" | "heavy"
@@ -45,7 +45,10 @@ class BlinkSettings:
                 data = json.load(f)
             valid_keys = {f.name for f in cls.__dataclass_fields__.values()}
             filtered = {k: v for k, v in data.items() if k in valid_keys}
-            return cls(**filtered)
+            settings = cls(**filtered)
+            if settings.match_threshold < 0.55:
+                settings.match_threshold = 0.65
+            return settings
         except Exception as e:
             print(f"[BlinkSettings] Error loading {SETTINGS_FILE}: {e}. Using defaults.")
             return cls()

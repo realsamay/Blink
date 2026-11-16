@@ -219,19 +219,22 @@ class VisionTelemetryWorker(threading.Thread):
                             emb = self.embedder.compute_embedding(aligned)
                             scored = self.embedder.score_identities(emb, active_identities)
                             if scored:
-                                best_ident, sim, _ = scored[0]
-                                if sim >= 0.50:  # Biometric match threshold
+                                settings = BlinkSettings.load()
+                                matched = self.embedder.best_match(scored, settings.match_threshold)
+                                if matched is not None:
+                                    best_ident, centroid_sim, max_sim = matched
                                     matched_name = best_ident.get("name", "User")
-                                    matched_sim = sim
+                                    matched_sim = centroid_sim
                                     is_match = True
                                     matched_id = best_ident.get("id")
                                     recognized_ids[matched_id] = (matched_name, matched_sim)
-                                    if sim > top_sim:
-                                        top_sim = sim
+                                    if centroid_sim > top_sim:
+                                        top_sim = centroid_sim
                                         top_name = matched_name
                                 else:
-                                    matched_name = f"Unknown ({sim:.2f})"
-                                    matched_sim = sim
+                                    top_ident, c_sim, _ = scored[0]
+                                    matched_name = f"Unknown ({c_sim:.2f})"
+                                    matched_sim = c_sim
 
                         faces_telemetry.append({
                             "bbox": face.bbox,
@@ -1235,14 +1238,14 @@ class SettingsWindow(Gtk.Window):
 
         lbl_thresh_val = Gtk.Label(label=f"{self.settings.match_threshold:.2f}")
         lbl_thresh_val.get_style_context().add_class("row-desc")
-        scale_thresh = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.40, 0.85, 0.01)
+        scale_thresh = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.55, 0.85, 0.01)
         scale_thresh.set_value(self.settings.match_threshold)
         scale_thresh.set_size_request(140, -1)
         scale_thresh.connect("value-changed", lambda w: self._on_thresh_slider(w, lbl_thresh_val))
         h_thresh = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         h_thresh.pack_start(scale_thresh, False, False, 0)
         h_thresh.pack_start(lbl_thresh_val, False, False, 0)
-        self._add_inset_row(group_tune, "Similarity threshold", "Higher values require closer match (0.60 recommended)", h_thresh)
+        self._add_inset_row(group_tune, "Similarity threshold", "Higher values require closer biometric match (0.65 recommended)", h_thresh)
 
         # Test Recognition Button
         btn_test = Gtk.Button(label="Test Face ID...")
@@ -1837,7 +1840,13 @@ class SettingsWindow(Gtk.Window):
         threading.Thread(target=_resume, daemon=True).start()
 
     def _start_enrollment_wizard(self, button) -> None:
-        self._stop_vision_pipeline()
+        # Pause background vision worker and timer without tearing down the hardware camera
+        if self._camera_timer is not None:
+            GLib.source_remove(self._camera_timer)
+            self._camera_timer = None
+
+        if self.vision_worker is not None:
+            self.vision_worker.stop_worker()
 
         dialog = EnrollmentDialog(parent=self, camera=self.camera)
         dialog.run()

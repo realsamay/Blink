@@ -35,14 +35,17 @@ if HAS_CV2:
     try:
         from blink.vision.camera import CameraManager
         from blink.vision.detector import FaceDetector, DetectedFace
+        from blink.vision.aligner import FaceAligner
         from blink.vision.embedder import ArcFaceEmbedder
     except Exception:
         CameraManager = None
         FaceDetector = None
+        FaceAligner = None
         ArcFaceEmbedder = None
 else:
     CameraManager = None
     FaceDetector = None
+    FaceAligner = None
     ArcFaceEmbedder = None
 
 def get_web_dir() -> Path:
@@ -77,6 +80,7 @@ RESOURCES_DIR = get_resources_dir()
 # Global shared camera and vision pipeline
 _camera_mgr: Optional[CameraManager] = None
 _face_detector: Optional[FaceDetector] = None
+_face_aligner: Optional[FaceAligner] = None
 _face_embedder: Optional[ArcFaceEmbedder] = None
 _server_instance: Optional[HTTPServer] = None
 _server_thread: Optional[threading.Thread] = None
@@ -104,6 +108,13 @@ def _get_detector() -> FaceDetector:
     if _face_detector is None:
         _face_detector = FaceDetector()
     return _face_detector
+
+
+def _get_aligner() -> FaceAligner:
+    global _face_aligner
+    if _face_aligner is None:
+        _face_aligner = FaceAligner()
+    return _face_aligner
 
 
 def _get_embedder() -> ArcFaceEmbedder:
@@ -192,22 +203,33 @@ class BlinkWebRequestHandler(BaseHTTPRequestHandler):
             frame = cam.get_frame()
             if frame is not None:
                 detector = _get_detector()
+                aligner = _get_aligner()
                 embedder = _get_embedder()
                 faces = detector.detect_faces(frame)
                 if faces:
-                    emb = embedder.compute_embedding(faces[0].aligned_112x112)
-                    sample = {"embedding": emb.tolist(), "pose": "center"}
-                    identities = SecureFaceStore.load_identities()
-                    new_id = {
-                        "id": str(int(time.time())),
-                        "name": name,
-                        "samples": [sample],
-                        "created_at": time.time(),
-                    }
-                    identities.append(new_id)
-                    SecureFaceStore.save_identities(identities)
-                    self._send_json({"ok": True, "identity": new_id})
-                    return
+                    dominant = FaceDetector.select_dominant_face(faces, frame_width=frame.shape[1])
+                    target_face = dominant if dominant is not None else faces[0]
+                    aligned = aligner.align(target_face, frame)
+                    if aligned is not None:
+                        emb = embedder.compute_embedding(aligned, flip_augment=True)
+                        sample = {"embedding": emb.tolist(), "pose": "center", "captured_at": time.time(), "quality": float(target_face.score)}
+                        identities = SecureFaceStore.load_identities()
+                        new_id = {
+                            "id": str(uuid.uuid4()),
+                            "name": name,
+                            "samples": [sample],
+                            "model_identifier": "arcface-w600k_mbf-v1",
+                            "embedding_dimension": 512,
+                            "created_at": time.time(),
+                            "is_enabled": True,
+                        }
+                        identities.append(new_id)
+                        SecureFaceStore.save_identities(identities)
+                        settings = BlinkSettings.load()
+                        settings.is_face_unlock_enabled = True
+                        settings.save()
+                        self._send_json({"ok": True, "identity": new_id})
+                        return
             self._send_json({"ok": False, "error": "No face detected in sensor frame"})
 
         elif url_path == "/api/identities/delete":

@@ -36,7 +36,20 @@ cat << 'EOF' > "${STAGE_DIR}/usr/bin/blink"
 #!/usr/bin/env bash
 export PYTHONUNBUFFERED=1
 export PYTHONPATH="/usr/lib/blink:${PYTHONPATH}"
-exec /usr/bin/python3 -u /usr/lib/blink/blink/main.py "$@"
+
+if /usr/bin/python3 -c "import cv2, gi" 2>/dev/null; then
+    PY_BIN="/usr/bin/python3"
+elif [ -f "/usr/lib/blink/.venv/bin/python" ]; then
+    PY_BIN="/usr/lib/blink/.venv/bin/python"
+elif [ -f "$HOME/.local/share/blink/venv/bin/python" ]; then
+    PY_BIN="$HOME/.local/share/blink/venv/bin/python"
+elif [ -f "$HOME/blink/.venv/bin/python" ]; then
+    PY_BIN="$HOME/blink/.venv/bin/python"
+else
+    PY_BIN="python3"
+fi
+
+exec "${PY_BIN}" -u /usr/lib/blink/blink/main.py "$@"
 EOF
 chmod 0755 "${STAGE_DIR}/usr/bin/blink"
 

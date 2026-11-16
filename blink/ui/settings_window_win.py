@@ -127,20 +127,24 @@ class WindowsVisionWorker(threading.Thread):
 
                         if aligned is not None and active_identities:
                             emb = self.embedder.compute_embedding(aligned)
-                            best_ident, sim = SecureFaceStore.find_best_match(emb, active_identities)
-                            if best_ident is not None:
-                                if sim >= 0.58:
+                            scored = self.embedder.score_identities(emb, active_identities)
+                            if scored:
+                                settings = BlinkSettings.load()
+                                matched = self.embedder.best_match(scored, settings.match_threshold)
+                                if matched is not None:
+                                    best_ident, centroid_sim, max_sim = matched
                                     matched_name = best_ident.get("name", "User")
-                                    matched_sim = sim
+                                    matched_sim = centroid_sim
                                     is_match = True
                                     matched_id = best_ident.get("id")
                                     recognized_ids[matched_id] = (matched_name, matched_sim)
-                                    if sim > top_sim:
-                                        top_sim = sim
+                                    if centroid_sim > top_sim:
+                                        top_sim = centroid_sim
                                         top_name = matched_name
                                 else:
-                                    matched_name = f"Unknown ({sim:.2f})"
-                                    matched_sim = sim
+                                    top_ident, c_sim, _ = scored[0]
+                                    matched_name = f"Unknown ({c_sim:.2f})"
+                                    matched_sim = c_sim
 
                         faces_telemetry.append({
                             "bbox": face.bbox,
@@ -476,11 +480,11 @@ def run_windows_settings():
         stop_vision()
         enroll_win = tk.Toplevel(root)
         enroll_win.title("Enroll Face ID")
-        enroll_win.geometry("540x560")
+        enroll_win.geometry("540x600")
         enroll_win.configure(bg="#0C0C0E")
 
         tk.Label(enroll_win, text="Face ID Enrollment", font=("Segoe UI", 14, "bold"), fg="#FFFFFF", bg="#0C0C0E").pack(pady=(16, 4))
-        tk.Label(enroll_win, text="Look directly at the camera to capture 5 facial angles.", font=("Segoe UI", 10), fg="#8E8E93", bg="#0C0C0E").pack()
+        tk.Label(enroll_win, text="Follow the guided poses to capture 5 facial angles.", font=("Segoe UI", 10), fg="#8E8E93", bg="#0C0C0E").pack()
 
         name_box = tk.Frame(enroll_win, bg="#1C1C22", padx=12, pady=10)
         name_box.pack(fill="x", padx=24, pady=10)
@@ -495,9 +499,70 @@ def run_windows_settings():
         lbl_enroll_prompt = tk.Label(enroll_win, text="Position your face in the center...", font=("Segoe UI", 11, "bold"), fg="#0071E3", bg="#0C0C0E")
         lbl_enroll_prompt.pack(pady=4)
 
-        poses = ["Center", "Look Slightly Left", "Look Slightly Right", "Tilt Up", "Tilt Down"]
+        poses = [
+            ("center", "Look straight at the camera"),
+            ("left", "Turn head slightly LEFT"),
+            ("right", "Turn head slightly RIGHT"),
+            ("up", "Tilt chin slightly UP"),
+            ("down", "Tilt chin slightly DOWN"),
+        ]
         current_pose_idx = [0]
         captured_embeddings = []
+        baseline_pitch = [None]
+        hold_frames = [0]
+        REQUIRED_HOLD_FRAMES = 12
+
+        def calculate_angles(f):
+            left_eye = f.landmarks_5pt[0]
+            right_eye = f.landmarks_5pt[1]
+            nose = f.landmarks_5pt[2]
+            left_mouth = f.landmarks_5pt[3]
+            right_mouth = f.landmarks_5pt[4]
+
+            iod = math.hypot(right_eye[0] - left_eye[0], right_eye[1] - left_eye[1]) + 1e-5
+            eye_mid_x = (left_eye[0] + right_eye[0]) / 2.0
+            eye_mid_y = (left_eye[1] + right_eye[1]) / 2.0
+            mouth_mid_y = (left_mouth[1] + right_mouth[1]) / 2.0
+
+            vert = max(1.0, mouth_mid_y - eye_mid_y)
+            pitch_ratio = float((nose[1] - eye_mid_y) / vert)
+
+            if baseline_pitch[0] is None:
+                baseline_pitch[0] = pitch_ratio
+            else:
+                baseline_pitch[0] += (pitch_ratio - baseline_pitch[0]) * 0.12
+
+            base = baseline_pitch[0] if baseline_pitch[0] is not None else 0.58
+            norm_yaw = (nose[0] - eye_mid_x) / iod
+            norm_pitch = pitch_ratio - base
+            return norm_yaw, norm_pitch
+
+        def check_pose(tag, yaw, pitch):
+            if tag == "center":
+                return abs(yaw) < 0.10 and abs(pitch) < 0.08
+            elif tag == "left":
+                return yaw < -0.09
+            elif tag == "right":
+                return yaw > 0.09
+            elif tag == "up":
+                return pitch < -0.035
+            elif tag == "down":
+                return pitch > 0.040
+            return False
+
+        def pose_hint(tag, yaw, pitch):
+            if tag == "center":
+                return "Look straight ahead at camera"
+            elif tag == "left":
+                return "Turn slightly to your LEFT" if yaw >= -0.09 else "Hold position..."
+            elif tag == "right":
+                return "Turn slightly to your RIGHT" if yaw <= 0.09 else "Hold position..."
+            elif tag == "up":
+                return "Tilt chin slightly UP" if pitch >= -0.035 else "Hold position..."
+            elif tag == "down":
+                return "Tilt chin slightly DOWN" if pitch <= 0.040 else "Hold position..."
+            return "Follow prompt above"
+
         camera.start()
 
         def update_enroll_feed():
@@ -509,31 +574,52 @@ def run_windows_settings():
             res = camera.get_latest_frame()
             if res:
                 _, frame = res
+                frame = cv2.flip(frame, 1)  # Selfie mirror flip
                 faces = detector.detect_faces(frame)
-                if faces:
-                    f = faces[0]
+                if faces and current_pose_idx[0] < len(poses):
+                    dominant = FaceDetector.select_dominant_face(faces, frame_width=frame.shape[1])
+                    f = dominant if dominant is not None else faces[0]
                     fx, fy, fw, fh = f.bbox
                     cv2.rectangle(frame, (fx, fy), (fx + fw, fy + fh), (52, 199, 89), 2)
                     for pt in f.landmarks_5pt:
                         cv2.circle(frame, (int(pt[0]), int(pt[1])), 3, (0, 113, 227), -1)
 
-                    if len(captured_embeddings) < len(poses):
-                        aligned = aligner.align(f, frame)
-                        if aligned is not None:
-                            emb = embedder.compute_embedding(aligned)
-                            captured_embeddings.append({"embedding": emb.tolist(), "pose": poses[current_pose_idx[0]]})
+                    tag, title = poses[current_pose_idx[0]]
+                    yaw, pitch = calculate_angles(f)
+                    matches = check_pose(tag, yaw, pitch)
+
+                    if matches:
+                        hold_frames[0] += 1
+                        pct = int((hold_frames[0] / REQUIRED_HOLD_FRAMES) * 100)
+                        lbl_enroll_prompt.config(text=f"Pose {current_pose_idx[0]+1}/5 ({tag.upper()}): Hold steady... {pct}%", fg="#34C759")
+
+                        if hold_frames[0] >= REQUIRED_HOLD_FRAMES:
+                            aligned = aligner.align(f, frame)
+                            if aligned is not None:
+                                emb = embedder.compute_embedding(aligned, flip_augment=True)
+                                captured_embeddings.append({
+                                    "embedding": emb.tolist(),
+                                    "pose": tag,
+                                    "captured_at": time.time(),
+                                    "quality": float(f.score)
+                                })
                             current_pose_idx[0] += 1
+                            hold_frames[0] = 0
+
                             if current_pose_idx[0] < len(poses):
-                                lbl_enroll_prompt.config(text=f"Pose {current_pose_idx[0]+1}/5: {poses[current_pose_idx[0]]}", fg="#FF9F0A")
+                                next_tag, next_title = poses[current_pose_idx[0]]
+                                lbl_enroll_prompt.config(text=f"Pose {current_pose_idx[0]+1}/5: {next_title}", fg="#FF9F0A")
                             else:
-                                lbl_enroll_prompt.config(text="✅ Enrollment Complete!", fg="#34C759")
+                                lbl_enroll_prompt.config(text="✅ All 5 poses enrolled & saved!", fg="#34C759")
                                 p_name = e_profile.get().strip() or "User"
                                 new_id = {
                                     "id": str(uuid.uuid4()),
                                     "name": p_name,
                                     "samples": captured_embeddings,
+                                    "model_identifier": "arcface-w600k_mbf-v1",
+                                    "embedding_dimension": 512,
                                     "is_enabled": True,
-                                    "enrolled_at": time.time(),
+                                    "created_at": time.time(),
                                 }
                                 existing = SecureFaceStore.load_identities()
                                 existing.append(new_id)
@@ -542,8 +628,14 @@ def run_windows_settings():
                                     var_face_enabled.set(True)
                                     on_toggle_face()
                                 refresh_profiles()
-                                enroll_win.after(1000, lambda: [enroll_win.destroy(), camera.stop(), start_vision()])
+                                enroll_win.after(1400, lambda: [enroll_win.destroy(), camera.stop(), start_vision()])
                                 return
+                    else:
+                        hold_frames[0] = 0
+                        lbl_enroll_prompt.config(text=f"Pose {current_pose_idx[0]+1}/5: {pose_hint(tag, yaw, pitch)}", fg="#FF9F0A")
+                elif not faces and current_pose_idx[0] < len(poses):
+                    hold_frames[0] = 0
+                    lbl_enroll_prompt.config(text="Position your face in the center...", fg="#0071E3")
 
                 rgb = cv2.cvtColor(cv2.resize(frame, (440, 330)), cv2.COLOR_BGR2RGB)
                 img = ImageTk.PhotoImage(image=Image.fromarray(rgb))
@@ -650,6 +742,22 @@ def run_windows_settings():
 
     btn_set_cam = ttk.Button(ctrl_row, text="Switch Camera", style="Secondary.TButton", command=on_change_cam)
     btn_set_cam.pack(side="left", padx=4)
+
+    # Biometric Match Threshold Row
+    thresh_row = tk.Frame(card_security, bg="#1C1C22")
+    thresh_row.pack(fill="x", pady=(10, 4))
+    tk.Label(thresh_row, text="Match Threshold:", font=("Segoe UI", 9, "bold"), fg="#E5E5EA", bg="#1C1C22").pack(side="left")
+    lbl_thresh_num = tk.Label(thresh_row, text=f"{settings.match_threshold:.2f}", font=("Segoe UI", 9, "bold"), fg="#34C759", bg="#1C1C22")
+
+    def on_thresh_slide(v):
+        val = round(float(v), 2)
+        lbl_thresh_num.config(text=f"{val:.2f}")
+        settings.match_threshold = val
+        settings.save()
+
+    slider_thresh = ttk.Scale(thresh_row, from_=0.55, to=0.85, value=settings.match_threshold, command=on_thresh_slide)
+    slider_thresh.pack(side="left", padx=10, fill="x", expand=True)
+    lbl_thresh_num.pack(side="right")
 
     # ==========================================================================
     # PAGE 3: Face Lab Diagnostics (Zero-Lag Live HUD Viewfinder)

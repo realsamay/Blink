@@ -58,6 +58,7 @@ class EnrollmentDialog(Gtk.Dialog):
             except Exception:
                 pass
 
+        self._owns_camera = (camera is None)
         self.camera = camera or CameraManager()
         self.detector = FaceDetector()
         self.aligner = FaceAligner()
@@ -71,11 +72,11 @@ class EnrollmentDialog(Gtk.Dialog):
 
         # Baseline facial geometry ratios (personalized on center pose)
         self.baseline_pitch_ratio: Optional[float] = None
-        self.pose_started_at = time.time()
+        self.pose_started_at: Optional[float] = None
 
-        # Hold timer
+        # Hold timer: requires 400ms of stable pose alignment
         self.hold_start_time: Optional[float] = None
-        self.required_hold_duration = 0.12
+        self.required_hold_duration = 0.40
         self.hold_progress = 0.0
 
         # Adaptive smooth centering & zoom
@@ -91,6 +92,7 @@ class EnrollmentDialog(Gtk.Dialog):
         self.complete_anim: float = 0.0
 
         self.is_completed = False
+        self.saved_identity_id: Optional[str] = None
         self.latest_frame: Optional[np.ndarray] = None
         self.frozen_blurred_pixbuf: Optional[GdkPixbuf.Pixbuf] = None
         self.latest_face: Optional[DetectedFace] = None
@@ -171,7 +173,7 @@ class EnrollmentDialog(Gtk.Dialog):
         if self.is_completed:
             self.lbl_instruction.set_markup(
                 "<span size='x-large' weight='bold' foreground='#30D158'>Face ID Enrolled</span>\n"
-                "<span size='small' foreground='#AAAAAA'>Confirm your profile name and click Save below.</span>"
+                "<span size='small' foreground='#AAAAAA'>Profile is securely saved and ready for instant biometric unlock.</span>"
             )
         else:
             tag, title, hint = POSES[self.current_pose_idx]
@@ -233,10 +235,14 @@ class EnrollmentDialog(Gtk.Dialog):
         if dominant is None:
             self.hold_start_time = None
             self.hold_progress = 0.0
+            self.pose_started_at = None
             self.status_message = "Position your face in the circle"
             self.lbl_status.set_text(self.status_message)
             self.draw_area.queue_draw()
             return True
+
+        if self.pose_started_at is None:
+            self.pose_started_at = time.time()
 
         # Adaptive smooth tracking
         fx, fy, fw, fh = dominant.bbox
@@ -262,7 +268,8 @@ class EnrollmentDialog(Gtk.Dialog):
                 self.hold_start_time = now
             elapsed = now - self.hold_start_time
             self.hold_progress = min(1.0, elapsed / self.required_hold_duration)
-            self.status_message = "Capturing pose..."
+            pct = int(self.hold_progress * 100)
+            self.status_message = f"Hold steady... {pct}%"
 
             if self.hold_progress >= 1.0:
                 self._capture_pose(dominant, frame, target_tag)
@@ -310,53 +317,61 @@ class EnrollmentDialog(Gtk.Dialog):
         return (norm_yaw, norm_pitch)
 
     def _check_pose_match(self, pose: str, yaw: float, pitch: float) -> bool:
+        if self.pose_started_at is None:
+            self.pose_started_at = time.time()
         time_on_pose = time.time() - self.pose_started_at
-        widen = 1.0 + max(0.0, time_on_pose - 0.8) * 1.5
 
-        if time_on_pose > 1.8:
-            return True
+        # Graceful tolerance adjustment only after 4.0 seconds of struggling
+        widen = 1.0 + max(0.0, time_on_pose - 4.0) * 0.10
+        widen = min(widen, 1.35)
 
         if pose == "center":
-            return abs(yaw) < (0.14 * widen) and abs(pitch) < (0.07 * widen)
+            return abs(yaw) < (0.10 * widen) and abs(pitch) < (0.07 * widen)
         elif pose == "left":
-            return yaw < (-0.05 / widen)
+            return yaw < (-0.09 / widen)
         elif pose == "right":
-            return yaw > (0.05 / widen)
+            return yaw > (0.09 / widen)
         elif pose == "up":
-            return pitch < (-0.02 / widen)
+            return pitch < (-0.035 / widen)
         elif pose == "down":
-            return pitch > (0.025 / widen)
+            return pitch > (0.040 / widen)
         return False
 
     def _pose_hint(self, pose: str, yaw: float, pitch: float) -> str:
         if pose == "center":
+            if abs(yaw) >= 0.10:
+                return "Center your face directly"
+            elif pitch < -0.07:
+                return "Tilt your chin down slightly"
+            elif pitch > 0.07:
+                return "Tilt your chin up slightly"
             return "Look straight ahead"
         elif pose == "left":
-            return "Turn slightly to your LEFT" if yaw >= -0.05 else "Hold position"
+            return "Turn slightly to your LEFT" if yaw >= -0.09 else "Hold position..."
         elif pose == "right":
-            return "Turn slightly to your RIGHT" if yaw <= 0.05 else "Hold position"
+            return "Turn slightly to your RIGHT" if yaw <= 0.09 else "Hold position..."
         elif pose == "up":
-            return "Tilt your chin slightly UP" if pitch >= -0.02 else "Hold position"
+            return "Tilt your chin slightly UP" if pitch >= -0.035 else "Hold position..."
         elif pose == "down":
-            return "Tilt your chin slightly DOWN" if pitch <= 0.025 else "Hold position"
+            return "Tilt your chin slightly DOWN" if pitch <= 0.040 else "Hold position..."
         return "Follow prompt above"
 
     def _capture_pose(self, face: DetectedFace, frame: np.ndarray, pose_tag: str) -> None:
         aligned = self.aligner.align(face, frame)
         if aligned is not None:
-            emb = self.embedder.compute_embedding(aligned)
+            emb = self.embedder.compute_embedding(aligned, flip_augment=True)
             self.captured_samples.append({
                 "embedding": emb.tolist(),
                 "pose": pose_tag,
                 "captured_at": time.time(),
-                "quality": face.score,
+                "quality": float(face.score),
             })
 
         self.completed_poses.add(pose_tag)
         self.current_pose_idx += 1
         self.hold_start_time = None
         self.hold_progress = 0.0
-        self.pose_started_at = time.time()
+        self.pose_started_at = None
 
         # Update button state
         self.btn_save.set_sensitive(True)
@@ -367,7 +382,7 @@ class EnrollmentDialog(Gtk.Dialog):
             self._on_poses_completed()
 
     def _on_poses_completed(self) -> None:
-        """Called when all 5 poses are collected: freezes and blurs circle and lets user name profile."""
+        """Called when all 5 poses are collected: auto-saves identity, freezes circular view, and shows Done."""
         self.is_completed = True
         self._update_instruction_text()
 
@@ -395,23 +410,11 @@ class EnrollmentDialog(Gtk.Dialog):
                     rgb.tobytes(), GdkPixbuf.Colorspace.RGB, False, 8, dw, dh, dw * 3
                 )
 
-        # Transition UI to completion state
-        self.lbl_status.set_text("● All 5 poses captured successfully")
-        self.btn_save.set_sensitive(True)
-        self.btn_save.set_label("Save Face Profile")
-        self.btn_save.get_style_context().add_class("btn-macos-primary")
-        self.btn_cancel.set_label("Close")
-        self.entry_name.grab_focus()
-        self.entry_name.select_region(0, -1)
-        self.draw_area.queue_draw()
-
-    def _on_save_clicked(self, button) -> None:
-        if not self.captured_samples:
-            return
-
-        name = self.entry_name.get_text().strip() or "Me"
+        # Auto-save immediately to encrypted storage so biometric data is never lost
+        name = self.entry_name.get_text().strip() or self.user_name
+        self.saved_identity_id = str(uuid.uuid4())
         identity = {
-            "id": str(uuid.uuid4()),
+            "id": self.saved_identity_id,
             "name": name,
             "samples": self.captured_samples,
             "model_identifier": "arcface-w600k_mbf-v1",
@@ -422,7 +425,63 @@ class EnrollmentDialog(Gtk.Dialog):
         identities = SecureFaceStore.load_identities()
         identities.append(identity)
         SecureFaceStore.save_identities(identities)
-        print(f"[Enrollment] Enrolled '{name}' with {len(self.captured_samples)} poses successfully.")
+
+        from blink.core.config import BlinkSettings
+        settings = BlinkSettings.load()
+        settings.is_face_unlock_enabled = True
+        settings.save()
+        print(f"[Enrollment] Auto-saved '{name}' with {len(self.captured_samples)} poses successfully.")
+
+        # Transition UI to completion state
+        self.lbl_status.set_text("● All 5 poses enrolled and securely saved")
+        self.btn_save.set_sensitive(True)
+        self.btn_save.set_label("Done")
+        self.btn_save.get_style_context().add_class("btn-macos-primary")
+        self.btn_cancel.set_label("Close")
+        self.entry_name.grab_focus()
+        self.entry_name.select_region(0, -1)
+        self.draw_area.queue_draw()
+
+    def _on_save_clicked(self, button) -> None:
+        if not self.captured_samples:
+            self.destroy()
+            return
+
+        name = self.entry_name.get_text().strip() or self.user_name
+
+        if self.saved_identity_id:
+            # Update name if user edited it
+            identities = SecureFaceStore.load_identities()
+            for ident in identities:
+                if ident.get("id") == self.saved_identity_id:
+                    ident["name"] = name
+                    break
+            SecureFaceStore.save_identities(identities)
+            print(f"[Enrollment] Updated identity '{self.saved_identity_id}' name to '{name}'.")
+        else:
+            # Manual early save before all 5 poses
+            self.saved_identity_id = str(uuid.uuid4())
+            identity = {
+                "id": self.saved_identity_id,
+                "name": name,
+                "samples": self.captured_samples,
+                "model_identifier": "arcface-w600k_mbf-v1",
+                "embedding_dimension": 512,
+                "created_at": time.time(),
+                "is_enabled": True,
+            }
+            identities = SecureFaceStore.load_identities()
+            identities.append(identity)
+            SecureFaceStore.save_identities(identities)
+
+            from blink.core.config import BlinkSettings
+            settings = BlinkSettings.load()
+            settings.is_face_unlock_enabled = True
+            settings.save()
+            print(f"[Enrollment] Enrolled '{name}' with {len(self.captured_samples)} poses successfully.")
+
+        self.response(Gtk.ResponseType.OK)
+        self.destroy()
 
         from blink.core.config import BlinkSettings
         settings = BlinkSettings.load()
@@ -597,3 +656,5 @@ class EnrollmentDialog(Gtk.Dialog):
         if self._timer_id:
             GLib.source_remove(self._timer_id)
             self._timer_id = None
+        if getattr(self, "_owns_camera", False):
+            self.camera.stop()

@@ -29,25 +29,31 @@ class ArcFaceEmbedder:
         self.input_name = self.session.get_inputs()[0].name
         self.output_name = self.session.get_outputs()[0].name
 
-    def compute_embedding(self, aligned_bgr: np.ndarray) -> np.ndarray:
-        """Takes a 112x112 BGR image, preprocesses, and outputs normalized 512-dim embedding."""
+    def compute_embedding(self, aligned_bgr: np.ndarray, flip_augment: bool = True) -> np.ndarray:
+        """Takes a 112x112 BGR image, preprocesses, and outputs normalized 512-dim embedding.
+        Uses horizontal flip augmentation by default to guarantee 100% mirror invariance.
+        """
         if aligned_bgr.shape[:2] != (112, 112):
             aligned_bgr = cv2.resize(aligned_bgr, (112, 112))
 
-        # Convert BGR to RGB
-        rgb = cv2.cvtColor(aligned_bgr, cv2.COLOR_BGR2RGB)
-        # Preprocessing: (pixel - 127.5) / 127.5
-        blob = (rgb.astype(np.float32) - 127.5) / 127.5
-        blob = np.transpose(blob, (2, 0, 1))
-        blob = np.expand_dims(blob, axis=0)
+        def _forward(bgr_crop: np.ndarray) -> np.ndarray:
+            rgb = cv2.cvtColor(bgr_crop, cv2.COLOR_BGR2RGB)
+            blob = (rgb.astype(np.float32) - 127.5) / 127.5
+            blob = np.transpose(blob, (2, 0, 1))
+            blob = np.expand_dims(blob, axis=0)
+            outputs = self.session.run([self.output_name], {self.input_name: blob})
+            raw = outputs[0][0]
+            norm = np.linalg.norm(raw)
+            return (raw / norm) if norm > 1e-6 else raw
 
-        outputs = self.session.run([self.output_name], {self.input_name: blob})
-        raw_emb = outputs[0][0]
-        # L2-normalize
-        norm = np.linalg.norm(raw_emb)
-        if norm > 1e-6:
-            return raw_emb / norm
-        return raw_emb
+        emb = _forward(aligned_bgr)
+        if flip_augment:
+            flipped_bgr = cv2.flip(aligned_bgr, 1)
+            emb_flip = _forward(flipped_bgr)
+            combined = emb + emb_flip
+            c_norm = np.linalg.norm(combined)
+            return (combined / c_norm) if c_norm > 1e-6 else combined
+        return emb
 
     @staticmethod
     def cosine_similarity(v1: np.ndarray, v2: np.ndarray) -> float:
@@ -100,11 +106,18 @@ class ArcFaceEmbedder:
         scored: List[Tuple[Dict[str, Any], float, float]],
         threshold: float
     ) -> Optional[Tuple[Dict[str, Any], float, float]]:
-        """Returns best match if composite score or individual pose matches within threshold."""
+        """Returns best match if centroid and composite similarity strictly satisfy threshold."""
         if not scored:
             return None
         top_identity, centroid_sim, max_sim = scored[0]
-        composite = 0.5 * centroid_sim + 0.5 * max_sim
-        if composite >= threshold or centroid_sim >= threshold or max_sim >= max(threshold, 0.65):
+
+        # Strict biometric safety floor: ArcFace MobileFaceNet produces ~0.35-0.52 for random strangers.
+        # Under no circumstance allow a match threshold below 0.60.
+        effective_thresh = max(float(threshold), 0.60)
+        composite = 0.60 * centroid_sim + 0.40 * max_sim
+
+        # Both the overall identity centroid and composite score MUST pass the threshold,
+        # and individual max pose similarity must not fall below 0.60.
+        if centroid_sim >= effective_thresh and composite >= effective_thresh and max_sim >= 0.60:
             return (top_identity, centroid_sim, max_sim)
         return None
