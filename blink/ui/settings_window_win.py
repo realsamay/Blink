@@ -289,6 +289,7 @@ def run_windows_settings():
     nav_buttons: Dict[str, tk.Button] = {}
     nav_items = [
         ("face_id", "🛡️  Face ID & Passcode"),
+        ("blink_lock", "🔒  Blink Lock"),
         ("camera", "📷  Camera & Security"),
         ("diagnostics", "🔬  Face Lab Diagnostics"),
         ("about", "ℹ️  About Blink"),
@@ -685,7 +686,261 @@ def run_windows_settings():
     btn_save_pwd.pack(side="right", padx=(8, 0))
 
     # ==========================================================================
-    # PAGE 2: Camera & Security
+    # PAGE: Blink Lock (App, Folder & File Protection)
+    # ==========================================================================
+    from blink.core.lock_manager import BlinkLockManager
+    lock_mgr = BlinkLockManager.get_instance()
+
+    page_blink_lock = tk.Frame(content_area, bg="#0C0C0E")
+    pages["blink_lock"] = page_blink_lock
+
+    # Hero Banner
+    hero_lock = tk.Frame(page_blink_lock, bg="#1C1C24", highlightthickness=1, highlightbackground="#2C2C38", padx=18, pady=16)
+    hero_lock.pack(fill="x", pady=(0, 10))
+
+    hero_lock_top = tk.Frame(hero_lock, bg="#1C1C24")
+    hero_lock_top.pack(fill="x")
+    tk.Label(hero_lock_top, text="Blink Lock & Vault", font=("Segoe UI", 16, "bold"), fg="#FFFFFF", bg="#1C1C24").pack(side="left")
+
+    var_lock_enabled = tk.BooleanVar(value=lock_mgr.is_enabled())
+    def on_toggle_lock_master():
+        lock_mgr.set_enabled(var_lock_enabled.get())
+        st = "● Guarding" if var_lock_enabled.get() else "● Disabled"
+        cl = "#34C759" if var_lock_enabled.get() else "#FF9F0A"
+        lbl_lock_status.config(text=st, fg=cl)
+
+    chk_lock_master = tk.Checkbutton(
+        hero_lock_top, text="Protection Active", variable=var_lock_enabled,
+        font=("Segoe UI", 10, "bold"), bg="#1C1C24", fg="#FFFFFF", selectcolor="#0071E3",
+        activebackground="#1C1C24", command=on_toggle_lock_master
+    )
+    chk_lock_master.pack(side="right")
+
+    lbl_lock_status = tk.Label(hero_lock, text="● Guarding" if lock_mgr.is_enabled() else "● Disabled",
+                               font=("Segoe UI", 9, "bold"), fg="#34C759" if lock_mgr.is_enabled() else "#FF9F0A", bg="#1C1C24")
+    lbl_lock_status.pack(anchor="w", pady=(2, 0))
+
+    tk.Label(hero_lock, text="Biometric protection for applications, sensitive folders, and private files.",
+             font=("Segoe UI", 10), fg="#8E8E93", bg="#1C1C24").pack(anchor="w", pady=(4, 0))
+
+    # Section 1: Protected Applications Card
+    card_apps = tk.Frame(page_blink_lock, bg="#1C1C22", highlightthickness=1, highlightbackground="#2C2C34", padx=16, pady=12)
+    card_apps.pack(fill="x", pady=6)
+
+    apps_hdr = tk.Frame(card_apps, bg="#1C1C22")
+    apps_hdr.pack(fill="x", pady=(0, 6))
+    tk.Label(apps_hdr, text="Protected Applications", font=("Segoe UI", 11, "bold"), fg="#FFFFFF", bg="#1C1C22").pack(side="left")
+
+    apps_rows_container = tk.Frame(card_apps, bg="#1C1C22")
+    apps_rows_container.pack(fill="x", pady=4)
+
+    def refresh_win_locked_apps():
+        for w in apps_rows_container.winfo_children():
+            w.destroy()
+        apps = lock_mgr.get_locked_apps()
+        if not apps:
+            tk.Label(apps_rows_container, text="No applications locked yet. Click '➕ Lock Application' below.",
+                     font=("Segoe UI", 9), fg="#8E8E93", bg="#1C1C22").pack(pady=8)
+            return
+
+        for app in apps:
+            ak = app.get("key", "")
+            an = app.get("name", "App")
+            row = tk.Frame(apps_rows_container, bg="#24242C", highlightthickness=1, highlightbackground="#34343E", padx=12, pady=8)
+            row.pack(fill="x", pady=3)
+
+            tk.Label(row, text=f"🔒  {an}", font=("Segoe UI", 10, "bold"), fg="#FFFFFF", bg="#24242C").pack(side="left")
+            tk.Label(row, text=f"({ak})", font=("Segoe UI", 9), fg="#8E8E93", bg="#24242C").pack(side="left", padx=8)
+            tk.Label(row, text="● Guarded", font=("Segoe UI", 9, "bold"), fg="#34C759", bg="#24242C").pack(side="left", padx=8)
+
+            def make_del_fn(k=ak):
+                def _del():
+                    lock_mgr.remove_locked_app(k)
+                    refresh_win_locked_apps()
+                return _del
+
+            btn_del = tk.Button(row, text="✕ Remove", font=("Segoe UI", 8), bg="#3A3A44", fg="#FF453A", relief="flat", command=make_del_fn(ak))
+            btn_del.pack(side="right")
+
+    def open_add_app_dialog():
+        dlg = tk.Toplevel(root)
+        dlg.title("Lock Application")
+        dlg.geometry("420x360")
+        dlg.configure(bg="#141418")
+
+        tk.Label(dlg, text="Select Application to Lock", font=("Segoe UI", 12, "bold"), fg="#FFFFFF", bg="#141418").pack(pady=(16, 6))
+        tk.Label(dlg, text="Choose a preset or type the process name (e.g. chrome.exe):", font=("Segoe UI", 9), fg="#8E8E93", bg="#141418").pack()
+
+        p_frame = tk.Frame(dlg, bg="#141418")
+        p_frame.pack(fill="x", padx=20, pady=10)
+
+        e_name = tk.Entry(dlg, font=("Segoe UI", 10), bg="#24242C", fg="#FFFFFF", insertbackground="#FFFFFF")
+        e_key = tk.Entry(dlg, font=("Segoe UI", 10), bg="#24242C", fg="#FFFFFF", insertbackground="#FFFFFF")
+
+        def select_preset(pname, pkey):
+            e_name.delete(0, tk.END)
+            e_name.insert(0, pname)
+            e_key.delete(0, tk.END)
+            e_key.insert(0, pkey)
+
+        presets = [
+            ("Google Chrome", "chrome.exe"),
+            ("Mozilla Firefox", "firefox.exe"),
+            ("Discord", "Discord.exe"),
+            ("Telegram", "Telegram.exe"),
+            ("VS Code", "Code.exe"),
+            ("WhatsApp", "WhatsApp.exe"),
+        ]
+
+        for i, (pn, pk) in enumerate(presets):
+            btn_p = tk.Button(p_frame, text=f"🔒 {pn}", font=("Segoe UI", 9), bg="#24242C", fg="#FFFFFF", relief="flat",
+                              command=lambda n=pn, k=pk: select_preset(n, k))
+            btn_p.grid(row=i//2, column=i%2, padx=6, pady=4, sticky="ew")
+        p_frame.columnconfigure(0, weight=1)
+        p_frame.columnconfigure(1, weight=1)
+
+        tk.Label(dlg, text="Application Name:", font=("Segoe UI", 9, "bold"), fg="#E5E5EA", bg="#141418").pack(anchor="w", padx=20)
+        e_name.pack(fill="x", padx=20, pady=(2, 6))
+
+        tk.Label(dlg, text="Executable / Process Name:", font=("Segoe UI", 9, "bold"), fg="#E5E5EA", bg="#141418").pack(anchor="w", padx=20)
+        e_key.pack(fill="x", padx=20, pady=(2, 12))
+
+        def on_add_confirm():
+            n = e_name.get().strip()
+            k = e_key.get().strip()
+            if k:
+                lock_mgr.add_locked_app(n or k, k)
+                refresh_win_locked_apps()
+            dlg.destroy()
+
+        btn_box = tk.Frame(dlg, bg="#141418")
+        btn_box.pack(fill="x", padx=20, pady=10)
+        ttk.Button(btn_box, text="Cancel", style="Secondary.TButton", command=dlg.destroy).pack(side="left")
+        ttk.Button(btn_box, text="Lock Application", style="Accent.TButton", command=on_add_confirm).pack(side="right")
+
+    btn_add_app = ttk.Button(card_apps, text="➕ Lock Application...", style="Accent.TButton", command=open_add_app_dialog)
+    btn_add_app.pack(anchor="w", pady=(6, 2))
+    refresh_win_locked_apps()
+
+    # Section 2: Encrypted Vault (Files & Folders)
+    card_vault = tk.Frame(page_blink_lock, bg="#1C1C22", highlightthickness=1, highlightbackground="#2C2C34", padx=16, pady=12)
+    card_vault.pack(fill="x", pady=6)
+
+    vault_hdr = tk.Frame(card_vault, bg="#1C1C22")
+    vault_hdr.pack(fill="x", pady=(0, 6))
+    tk.Label(vault_hdr, text="Encrypted Vault (Files & Folders)", font=("Segoe UI", 11, "bold"), fg="#FFFFFF", bg="#1C1C22").pack(side="left")
+
+    vault_rows_container = tk.Frame(card_vault, bg="#1C1C22")
+    vault_rows_container.pack(fill="x", pady=4)
+
+    def refresh_win_vault():
+        for w in vault_rows_container.winfo_children():
+            w.destroy()
+        items = lock_mgr.get_locked_items()
+        if not items:
+            tk.Label(vault_rows_container, text="Vault is empty. Click '📁 Lock Folder' or '📄 Lock File' below.",
+                     font=("Segoe UI", 9), fg="#8E8E93", bg="#1C1C22").pack(pady=8)
+            return
+
+        for it in items:
+            name = it.get("name", "Item")
+            orig = it.get("original_path", "")
+            itype = it.get("type", "file").capitalize()
+            lp = it.get("locked_path", "")
+            sz_kb = it.get("size_bytes", 0) / 1024.0
+            sz_str = f"{sz_kb/1024.0:.1f} MB" if sz_kb > 1024 else f"{sz_kb:.1f} KB"
+
+            row = tk.Frame(vault_rows_container, bg="#24242C", highlightthickness=1, highlightbackground="#34343E", padx=12, pady=8)
+            row.pack(fill="x", pady=3)
+
+            prefix = "📁 " if itype == "Folder" else "📄 "
+            tk.Label(row, text=f"{prefix} {name}", font=("Segoe UI", 10, "bold"), fg="#FFFFFF", bg="#24242C").pack(side="left")
+            tk.Label(row, text=f"[{itype} • {sz_str}]", font=("Segoe UI", 9), fg="#8E8E93", bg="#24242C").pack(side="left", padx=8)
+
+            def make_unlock_fn(locked_p=lp):
+                def _unlock():
+                    try:
+                        restored = lock_mgr.unlock_path(locked_p)
+                        messagebox.showinfo("Blink Lock", f"Successfully unlocked and decrypted:\n{restored}")
+                        refresh_win_vault()
+                    except Exception as e:
+                        messagebox.showerror("Blink Lock Error", f"Decryption failed:\n{e}")
+                return _unlock
+
+            def make_del_fn(item_id=it.get("id")):
+                def _del():
+                    if messagebox.askyesno("Remove from Vault", "Remove this record from Vault index?"):
+                        d = lock_mgr._load_raw()
+                        d["locked_items"] = [x for x in d.get("locked_items", []) if x.get("id") != item_id]
+                        lock_mgr._save_raw(d)
+                        refresh_win_vault()
+                return _del
+
+            btn_del = tk.Button(row, text="🗑️", font=("Segoe UI", 8), bg="#3A3A44", fg="#FF453A", relief="flat", command=make_del_fn(it.get("id")))
+            btn_del.pack(side="right", padx=(4, 0))
+
+            btn_un = ttk.Button(row, text="🔓 Unlock", style="Accent.TButton", command=make_unlock_fn(lp))
+            btn_un.pack(side="right")
+
+    def lock_folder_dialog():
+        from tkinter import filedialog
+        folder = filedialog.askdirectory(title="Select Folder to Lock with Blink")
+        if folder:
+            try:
+                lock_mgr.lock_path(folder)
+                messagebox.showinfo("Blink Lock", f"Folder encrypted and locked into Vault:\n{folder}.blinklock")
+                refresh_win_vault()
+            except Exception as e:
+                messagebox.showerror("Blink Lock Error", f"Failed to lock folder:\n{e}")
+
+    def lock_file_dialog():
+        from tkinter import filedialog
+        file_path = filedialog.askopenfilename(title="Select File to Lock with Blink")
+        if file_path:
+            try:
+                lock_mgr.lock_path(file_path)
+                messagebox.showinfo("Blink Lock", f"File encrypted and locked into Vault:\n{file_path}.blinklock")
+                refresh_win_vault()
+            except Exception as e:
+                messagebox.showerror("Blink Lock Error", f"Failed to lock file:\n{e}")
+
+    vault_btns = tk.Frame(card_vault, bg="#1C1C22")
+    vault_btns.pack(fill="x", pady=(6, 2))
+    ttk.Button(vault_btns, text="📁 Lock Folder...", style="Secondary.TButton", command=lock_folder_dialog).pack(side="left", padx=(0, 8))
+    ttk.Button(vault_btns, text="📄 Lock File...", style="Secondary.TButton", command=lock_file_dialog).pack(side="left")
+    refresh_win_vault()
+
+    # Section 3: Lock Preferences
+    card_prefs = tk.Frame(page_blink_lock, bg="#1C1C22", highlightthickness=1, highlightbackground="#2C2C34", padx=16, pady=12)
+    card_prefs.pack(fill="x", pady=6)
+
+    tk.Label(card_prefs, text="Lock Preferences", font=("Segoe UI", 11, "bold"), fg="#FFFFFF", bg="#1C1C22").pack(anchor="w", pady=(0, 6))
+
+    pref_row = tk.Frame(card_prefs, bg="#1C1C22")
+    pref_row.pack(fill="x", pady=4)
+    tk.Label(pref_row, text="Grace Period:", font=("Segoe UI", 9, "bold"), fg="#E5E5EA", bg="#1C1C22").pack(side="left")
+    spin_grace = ttk.Spinbox(pref_row, from_=0, to=900, increment=30, width=6)
+    spin_grace.set(lock_mgr.get_grace_period())
+    spin_grace.pack(side="left", padx=8)
+    tk.Label(pref_row, text="seconds", font=("Segoe UI", 9), fg="#8E8E93", bg="#1C1C22").pack(side="left")
+
+    def on_save_grace():
+        try:
+            lock_mgr.set_grace_period(int(spin_grace.get()))
+            messagebox.showinfo("Blink Lock", "Grace period updated.")
+        except Exception:
+            pass
+
+    ttk.Button(pref_row, text="Save", style="Secondary.TButton", command=on_save_grace).pack(side="left", padx=8)
+
+    def on_install_win_context():
+        lock_mgr.install_context_menus()
+        messagebox.showinfo("Blink Lock", "Windows Explorer right-click context menu installed successfully.")
+
+    ttk.Button(card_prefs, text="⚙️  Install Windows Explorer Context Menu", style="Secondary.TButton", command=on_install_win_context).pack(anchor="w", pady=(8, 2))
+
+    # ==========================================================================
+    # PAGE 3: Camera & Security
     # ==========================================================================
     page_camera = tk.Frame(content_area, bg="#0C0C0E")
     pages["camera"] = page_camera

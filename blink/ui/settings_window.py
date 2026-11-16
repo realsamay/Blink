@@ -748,6 +748,30 @@ def create_macos_icon(kind: str, bg_hex: str, size: int = 24) -> cairo.ImageSurf
         cr.move_to(0.0, 3.5); cr.line_to(0.0, -4.5); cr.stroke()
         cr.move_to(3.6, 3.5); cr.line_to(3.6, 0.5); cr.stroke()
 
+    elif kind == "lock":
+        # Apple-style lock icon (body + shackle + keyhole)
+        cr.set_line_width(1.5)
+        cr.arc(0, -1.8, 3.2, math.pi, 0)
+        cr.line_to(3.2, 0.5)
+        cr.stroke()
+        l_rad = 1.6
+        cr.new_sub_path()
+        cr.arc(4.8 - l_rad, 0.5 + l_rad, l_rad, -math.pi / 2, 0)
+        cr.arc(4.8 - l_rad, 6.0 - l_rad, l_rad, 0, math.pi / 2)
+        cr.arc(-4.8 + l_rad, 6.0 - l_rad, l_rad, math.pi / 2, math.pi)
+        cr.arc(-4.8 + l_rad, 0.5 + l_rad, l_rad, math.pi, 3 * math.pi / 2)
+        cr.close_path()
+        cr.fill()
+        cr.set_source_rgb(r, g, b)
+        cr.arc(0, 2.5, 0.9, 0, 2 * math.pi)
+        cr.fill()
+        cr.move_to(-0.5, 2.5)
+        cr.line_to(0.5, 2.5)
+        cr.line_to(0.7, 4.6)
+        cr.line_to(-0.7, 4.6)
+        cr.close_path()
+        cr.fill()
+
     elif kind == "about":
         cr.set_line_width(1.3)
         cr.arc(0, 0, 5.5, 0, 2 * math.pi); cr.stroke()
@@ -819,6 +843,9 @@ class SettingsWindow(Gtk.Window):
         self.embedder = ArcFaceEmbedder()
         self.liveness = LivenessAnalyzer(mode=self.settings.liveness_mode)
 
+        from blink.core.lock_manager import BlinkLockManager
+        self.lock_mgr = BlinkLockManager.get_instance()
+
         # Vision Worker runs decoupled in background to completely prevent UI lag!
         self.vision_worker = VisionTelemetryWorker(
             camera=self.camera,
@@ -849,6 +876,7 @@ class SettingsWindow(Gtk.Window):
 
         # Build Clean Pages
         self.stack.add_named(self._build_face_id_page(), "face_id")
+        self.stack.add_named(self._build_blink_lock_page(), "blink_lock")
         self.stack.add_named(self._build_camera_page(), "camera")
         self.stack.add_named(self._build_liveness_page(), "liveness")
         self.stack.add_named(self._build_diagnostics_page(), "diagnostics")
@@ -1018,6 +1046,7 @@ class SettingsWindow(Gtk.Window):
         self.nav_rows: Dict[str, Gtk.ListBoxRow] = {}
 
         self._add_nav_item("face_id", "Face ID & Password", "face_id", "#0A84FF")
+        self._add_nav_item("blink_lock", "Blink Lock", "lock", "#FF9F0A")
         self._add_nav_item("camera", "Camera", "camera", "#BF5AF2")
         self._add_nav_item("liveness", "Anti-Spoofing", "liveness", "#34C759")
         self._add_nav_item("diagnostics", "Diagnostics", "diagnostics", "#5E5CE6")
@@ -1387,6 +1416,379 @@ class SettingsWindow(Gtk.Window):
             self.group_profiles.pack_start(add_row, False, False, 0)
 
         self.group_profiles.show_all()
+
+    # --------------------------------------------------------------------------
+    # Page: Blink Lock (App, Folder & File Protection)
+    # --------------------------------------------------------------------------
+    def _build_blink_lock_page(self) -> Gtk.Widget:
+        scroll, page = self._create_page_wrapper("Blink Lock")
+
+        # 1. Glass Hero Banner
+        top_hero = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        top_hero.get_style_context().add_class("glass-hero")
+        top_hero.set_margin_bottom(18)
+
+        h_hero = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+        v_hero_info = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+
+        lbl_hero_t = Gtk.Label(label="Blink Lock & Vault")
+        lbl_hero_t.set_xalign(0)
+        lbl_hero_t.get_style_context().add_class("hero-title")
+
+        lbl_hero_d = Gtk.Label(label="Biometric protection for apps, sensitive folders, and private files.")
+        lbl_hero_d.set_xalign(0)
+        lbl_hero_d.get_style_context().add_class("hero-desc")
+
+        v_hero_info.pack_start(lbl_hero_t, False, False, 0)
+        v_hero_info.pack_start(lbl_hero_d, False, False, 0)
+        h_hero.pack_start(v_hero_info, True, True, 0)
+
+        self.sw_lock_master = Gtk.Switch()
+        self.sw_lock_master.set_valign(Gtk.Align.CENTER)
+        self.sw_lock_master.set_active(self.lock_mgr.is_enabled())
+        self.sw_lock_master.connect("state-set", self._on_lock_master_toggled)
+        h_hero.pack_end(self.sw_lock_master, False, False, 0)
+
+        top_hero.pack_start(h_hero, True, True, 0)
+        page.pack_start(top_hero, False, False, 0)
+
+        # 2. Section: Protected Applications (App Lock)
+        page.pack_start(self._create_group_heading("Protected Applications"), False, False, 0)
+        self.group_locked_apps = self._create_inset_group()
+        page.pack_start(self.group_locked_apps, False, False, 0)
+        self._refresh_locked_apps_rows()
+
+        page.pack_start(self._create_group_footnote(
+            "Protected applications require Face ID authentication as soon as their window is opened or brought to focus."
+        ), False, False, 0)
+
+        # 3. Section: Encrypted Vault (Files & Folders)
+        page.pack_start(self._create_group_heading("Encrypted Vault (Files & Folders)"), False, False, 0)
+        self.group_vault = self._create_inset_group()
+        page.pack_start(self.group_vault, False, False, 0)
+        self._refresh_vault_rows()
+
+        page.pack_start(self._create_group_footnote(
+            "Items in the vault are encrypted with military-grade AES-256-GCM. You can also right-click any item in your file manager and select 'Lock with Blink'."
+        ), False, False, 0)
+
+        # 4. Section: Lock Preferences
+        page.pack_start(self._create_group_heading("Preferences & Shortcuts"), False, False, 0)
+        group_prefs = self._create_inset_group()
+
+        combo_grace = Gtk.ComboBoxText()
+        combo_grace.append("0", "Immediate (Always lock)")
+        combo_grace.append("60", "1 Minute")
+        combo_grace.append("300", "5 Minutes")
+        combo_grace.append("900", "15 Minutes")
+        current_grace = str(self.lock_mgr.get_grace_period())
+        if current_grace not in ("0", "60", "300", "900"):
+            combo_grace.append(current_grace, f"{current_grace} Seconds")
+        combo_grace.set_active_id(current_grace)
+        combo_grace.connect("changed", self._on_grace_period_changed)
+        self._add_inset_row(group_prefs, "Unlock session grace period", "How long an app stays unlocked before requiring a new face scan", combo_grace)
+
+        self.btn_install_ctx = Gtk.Button(label="Install Context Menu")
+        self.btn_install_ctx.get_style_context().add_class("btn-macos")
+        self.btn_install_ctx.connect("clicked", self._on_install_context_menu_clicked)
+        self._add_inset_row(group_prefs, "File Manager integration", "Add 'Lock with Blink' to right-click menus in Nemo, Nautilus, and Caja", self.btn_install_ctx, is_last=True)
+
+        page.pack_start(group_prefs, False, False, 0)
+        return scroll
+
+    def _on_lock_master_toggled(self, switch: Gtk.Switch, state: bool) -> bool:
+        self.lock_mgr.set_enabled(state)
+        return False
+
+    def _on_grace_period_changed(self, combo: Gtk.ComboBoxText) -> None:
+        active_id = combo.get_active_id()
+        if active_id:
+            self.lock_mgr.set_grace_period(int(active_id))
+
+    def _on_install_context_menu_clicked(self, button: Gtk.Button) -> None:
+        self.lock_mgr.install_context_menus()
+        button.set_label("✓ Installed")
+        button.set_sensitive(False)
+
+    def _refresh_locked_apps_rows(self) -> None:
+        for child in self.group_locked_apps.get_children():
+            self.group_locked_apps.remove(child)
+
+        apps = self.lock_mgr.get_locked_apps()
+        if not apps:
+            self._add_inset_row(
+                self.group_locked_apps,
+                "No Protected Apps",
+                "Click 'Lock Application...' to protect sensitive apps"
+            )
+        else:
+            for app in apps:
+                app_key = app.get("key", "")
+                app_name = app.get("name", "App")
+
+                h_ctrl = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+                lbl_badge = Gtk.Label(label="● Guarded")
+                lbl_badge.get_style_context().add_class("pill-badge-active")
+                h_ctrl.pack_start(lbl_badge, False, False, 0)
+
+                btn_del = Gtk.Button(label="✕ Remove")
+                btn_del.get_style_context().add_class("btn-macos")
+                btn_del.connect("clicked", lambda b, k=app_key: self._on_remove_app_clicked(k))
+                h_ctrl.pack_start(btn_del, False, False, 0)
+
+                self._add_inset_row(
+                    self.group_locked_apps,
+                    app_name,
+                    f"Process ID / Window Class: {app_key}",
+                    h_ctrl
+                )
+
+        # Bottom Action Row
+        btn_add = Gtk.Button(label="➕ Lock Application...")
+        btn_add.get_style_context().add_class("btn-macos-primary")
+        btn_add.connect("clicked", self._show_add_app_dialog)
+        self._add_inset_row(
+            self.group_locked_apps,
+            "Add Application",
+            "Select from popular applications or enter process name",
+            btn_add,
+            is_last=True
+        )
+        self.group_locked_apps.show_all()
+
+    def _on_remove_app_clicked(self, app_key: str) -> None:
+        self.lock_mgr.remove_locked_app(app_key)
+        self._refresh_locked_apps_rows()
+
+    def _show_add_app_dialog(self, button: Gtk.Button) -> None:
+        dialog = Gtk.Dialog(
+            title="Lock Application",
+            parent=self,
+            flags=Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT
+        )
+        dialog.set_default_size(460, 400)
+        dialog.set_resizable(False)
+
+        area = dialog.get_content_area()
+        area.set_spacing(12)
+        area.set_border_width(18)
+
+        lbl_t = Gtk.Label(label="<span size='large' weight='bold'>Choose Application to Protect</span>")
+        lbl_t.set_use_markup(True)
+        lbl_t.set_xalign(0)
+        area.pack_start(lbl_t, False, False, 0)
+
+        lbl_desc = Gtk.Label(label="Select a common app or type a process/window class name:")
+        lbl_desc.set_xalign(0)
+        lbl_desc.get_style_context().add_class("row-desc")
+        area.pack_start(lbl_desc, False, False, 0)
+
+        flow = Gtk.FlowBox()
+        flow.set_max_children_per_line(2)
+        flow.set_selection_mode(Gtk.SelectionMode.NONE)
+
+        presets = [
+            ("Google Chrome", "google-chrome"),
+            ("Mozilla Firefox", "firefox"),
+            ("Discord", "discord"),
+            ("Telegram", "telegram-desktop"),
+            ("VS Code", "code"),
+            ("Terminal", "x-terminal-emulator"),
+            ("Files (Nemo)", "nemo"),
+            ("Settings", "cinnamon-settings"),
+        ]
+
+        entry_name = Gtk.Entry()
+        entry_name.set_placeholder_text("App Display Name (e.g. Spotify)")
+
+        entry_key = Gtk.Entry()
+        entry_key.set_placeholder_text("Process / Class Name (e.g. spotify)")
+
+        def _select_preset(p_name, p_key):
+            entry_name.set_text(p_name)
+            entry_key.set_text(p_key)
+
+        for p_name, p_key in presets:
+            btn_p = Gtk.Button(label=f"🔒 {p_name}")
+            btn_p.get_style_context().add_class("btn-macos")
+            btn_p.connect("clicked", lambda b, n=p_name, k=p_key: _select_preset(n, k))
+            flow.add(btn_p)
+
+        area.pack_start(flow, False, False, 4)
+
+        v_custom = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        v_custom.pack_start(entry_name, False, False, 0)
+        v_custom.pack_start(entry_key, False, False, 0)
+        area.pack_start(v_custom, False, False, 4)
+
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        btn_ok = dialog.add_button("Lock Application", Gtk.ResponseType.OK)
+        btn_ok.get_style_context().add_class("btn-macos-primary")
+
+        dialog.show_all()
+        resp = dialog.run()
+        if resp == Gtk.ResponseType.OK:
+            name = entry_name.get_text().strip()
+            key = entry_key.get_text().strip()
+            if key:
+                self.lock_mgr.add_locked_app(name or key.capitalize(), key)
+                self._refresh_locked_apps_rows()
+        dialog.destroy()
+
+    def _refresh_vault_rows(self) -> None:
+        for child in self.group_vault.get_children():
+            self.group_vault.remove(child)
+
+        items = self.lock_mgr.get_locked_items()
+        if not items:
+            self._add_inset_row(
+                self.group_vault,
+                "Vault is Empty",
+                "Lock any file or folder using the buttons below or right-click in your file manager"
+            )
+        else:
+            for it in items:
+                name = it.get("name", "Item")
+                orig_str = it.get("original_path", "")
+                itype = it.get("type", "file").capitalize()
+                size_kb = it.get("size_bytes", 0) / 1024.0
+                sz_str = f"{size_kb / 1024.0:.1f} MB" if size_kb > 1024 else f"{size_kb:.1f} KB"
+
+                h_ctrl = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+
+                btn_unlock = Gtk.Button(label="🔓 Unlock")
+                btn_unlock.get_style_context().add_class("btn-macos-primary")
+                btn_unlock.connect("clicked", lambda b, rec=it: self._on_unlock_vault_item(rec))
+                h_ctrl.pack_start(btn_unlock, False, False, 0)
+
+                btn_rm = Gtk.Button(label="🗑️")
+                btn_rm.get_style_context().add_class("btn-macos")
+                btn_rm.connect("clicked", lambda b, rec=it: self._on_delete_vault_item(rec))
+                h_ctrl.pack_start(btn_rm, False, False, 0)
+
+                prefix = "📁 " if itype == "Folder" else "📄 "
+                self._add_inset_row(
+                    self.group_vault,
+                    f"{prefix}{name}",
+                    f"{itype} • {sz_str} • {orig_str}",
+                    h_ctrl
+                )
+
+        # Action Buttons Row
+        h_btns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        btn_lock_folder = Gtk.Button(label="📁 Lock Folder...")
+        btn_lock_folder.get_style_context().add_class("btn-macos")
+        btn_lock_folder.connect("clicked", self._on_lock_folder_clicked)
+        h_btns.pack_start(btn_lock_folder, False, False, 0)
+
+        btn_lock_file = Gtk.Button(label="📄 Lock File...")
+        btn_lock_file.get_style_context().add_class("btn-macos")
+        btn_lock_file.connect("clicked", self._on_lock_file_clicked)
+        h_btns.pack_start(btn_lock_file, False, False, 0)
+
+        self._add_inset_row(
+            self.group_vault,
+            "Protect Files & Folders",
+            "Encrypt with AES-256-GCM and store in biometric vault",
+            h_btns,
+            is_last=True
+        )
+        self.group_vault.show_all()
+
+    def _on_lock_folder_clicked(self, button: Gtk.Button) -> None:
+        chooser = Gtk.FileChooserDialog(
+            title="Select Folder to Lock with Blink",
+            parent=self,
+            action=Gtk.FileChooserAction.SELECT_FOLDER
+        )
+        chooser.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        btn_lock = chooser.add_button("Lock & Encrypt Folder", Gtk.ResponseType.OK)
+        btn_lock.get_style_context().add_class("btn-macos-primary")
+
+        if chooser.run() == Gtk.ResponseType.OK:
+            selected = chooser.get_filename()
+            chooser.destroy()
+            if selected:
+                try:
+                    self.lock_mgr.lock_path(selected)
+                    self._refresh_vault_rows()
+                except Exception as e:
+                    self._show_error_dialog(f"Failed to lock folder:\n{e}")
+        else:
+            chooser.destroy()
+
+    def _on_lock_file_clicked(self, button: Gtk.Button) -> None:
+        chooser = Gtk.FileChooserDialog(
+            title="Select File to Lock with Blink",
+            parent=self,
+            action=Gtk.FileChooserAction.OPEN
+        )
+        chooser.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        btn_lock = chooser.add_button("Lock & Encrypt File", Gtk.ResponseType.OK)
+        btn_lock.get_style_context().add_class("btn-macos-primary")
+
+        if chooser.run() == Gtk.ResponseType.OK:
+            selected = chooser.get_filename()
+            chooser.destroy()
+            if selected:
+                try:
+                    self.lock_mgr.lock_path(selected)
+                    self._refresh_vault_rows()
+                except Exception as e:
+                    self._show_error_dialog(f"Failed to lock file:\n{e}")
+        else:
+            chooser.destroy()
+
+    def _on_unlock_vault_item(self, item_record: Dict[str, Any]) -> None:
+        locked_path = item_record.get("locked_path", "")
+        item_name = item_record.get("name", "Item")
+
+        # Temporarily pause background vision worker during scan
+        if self._camera_timer is not None:
+            GLib.source_remove(self._camera_timer)
+            self._camera_timer = None
+        if self.vision_worker is not None:
+            self.vision_worker.stop_worker()
+
+        from blink.core.coordinator import FaceUnlockCoordinator
+        from blink.ui.notch_overlay import NotchOverlayWindow
+        overlay = NotchOverlayWindow()
+        overlay._is_desktop_preview = True
+        coord = FaceUnlockCoordinator(overlay=overlay)
+        verified = coord.authenticate_face(purpose=f"Unlock {item_name}")
+        if verified:
+            try:
+                restored = self.lock_mgr.unlock_path(locked_path)
+                self._refresh_vault_rows()
+                try:
+                    subprocess.run(["gio", "open", str(restored)], check=False)
+                except Exception:
+                    pass
+            except Exception as e:
+                self._show_error_dialog(f"Failed to unlock item:\n{e}")
+        else:
+            self._show_error_dialog("Face ID authentication failed. Access denied.")
+
+        if self._active_page in ("face_id", "camera", "diagnostics"):
+            self._start_vision_pipeline()
+
+    def _on_delete_vault_item(self, item_record: Dict[str, Any]) -> None:
+        it_id = item_record.get("id")
+        data = self.lock_mgr._load_raw()
+        data["locked_items"] = [x for x in data.get("locked_items", []) if x.get("id") != it_id]
+        self.lock_mgr._save_raw(data)
+        self._refresh_vault_rows()
+
+    def _show_error_dialog(self, message: str) -> None:
+        d = Gtk.MessageDialog(
+            parent=self,
+            flags=Gtk.DialogFlags.MODAL,
+            type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.OK,
+            message_format=message
+        )
+        d.run()
+        d.destroy()
 
     # --------------------------------------------------------------------------
     # Page 2: Camera (Whole Sensor Form)

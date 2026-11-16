@@ -31,6 +31,8 @@ class BlinkSettings:
     show_unlock_animation: bool = True
     camera_index: int = 0
     auto_lock_idle_minutes: int = 15
+    blink_lock_enabled: bool = True
+    blink_lock_grace_period: int = 60
 
     @classmethod
     def load(cls) -> BlinkSettings:

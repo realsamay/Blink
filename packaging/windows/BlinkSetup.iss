@@ -70,6 +70,23 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameter
 ; Background Daemon Autostart on Logon
 Name: "{autostartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: "daemon"; IconFilename: "{app}\appicon.ico"; Tasks: startupdaemon
 
+[Registry]
+; Context menu for files
+Root: HKCR; Subkey: "*\shell\BlinkLock"; ValueType: string; ValueName: ""; ValueData: "Lock with Blink"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "*\shell\BlinkLock"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\appicon.ico"; Flags: uninsdeletevalue
+Root: HKCR; Subkey: "*\shell\BlinkLock\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" lock ""%1"""; Flags: uninsdeletekey
+
+; Context menu for folders
+Root: HKCR; Subkey: "Directory\shell\BlinkLock"; ValueType: string; ValueName: ""; ValueData: "Lock with Blink"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "Directory\shell\BlinkLock"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\appicon.ico"; Flags: uninsdeletevalue
+Root: HKCR; Subkey: "Directory\shell\BlinkLock\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" lock ""%1"""; Flags: uninsdeletekey
+
+; .blinklock extension association
+Root: HKCR; Subkey: ".blinklock"; ValueType: string; ValueName: ""; ValueData: "BlinkLockContainer"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "BlinkLockContainer"; ValueType: string; ValueName: ""; ValueData: "Blink Encrypted Container"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "BlinkLockContainer\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\appicon.ico"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "BlinkLockContainer\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" unlock ""%1"""; Flags: uninsdeletekey
+
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Parameters: "settings"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 Filename: "{app}\{#MyAppExeName}"; Parameters: "daemon"; Flags: nowait runminimized

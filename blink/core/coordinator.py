@@ -70,6 +70,10 @@ class FaceUnlockCoordinator:
         self.last_outcome: Optional[str] = None
         KeystrokeInjector.warmup()
 
+        from blink.core.lock_manager import BlinkLockManager, AppLockWatcher
+        self.lock_manager = BlinkLockManager.get_instance()
+        self.app_lock_watcher = AppLockWatcher(coordinator=self, lock_manager=self.lock_manager)
+
     def ensure_overlay(self) -> NotchOverlayWindow:
         if self.overlay is None or getattr(self.overlay, "_is_dead", False):
             if self.overlay is not None:
@@ -89,11 +93,128 @@ class FaceUnlockCoordinator:
 
     def start(self) -> None:
         self.lock_monitor.start()
-        print("[Coordinator] FaceUnlockCoordinator started and monitoring lock state.")
+        self.app_lock_watcher.start_watcher()
+        print("[Coordinator] FaceUnlockCoordinator and AppLockWatcher started.")
 
     def stop(self) -> None:
         self.lock_monitor.stop()
+        self.app_lock_watcher.stop_watcher()
         self.stop_all_active()
+
+    def authenticate_face(self, purpose: str = "Blink Lock", timeout: float = 4.0) -> bool:
+        """Synchronously triggers desktop Face ID verification with Dynamic Island card animation.
+        Returns True if face matches and liveness passes, False otherwise.
+        """
+        self.settings = BlinkSettings.load()
+        identities = SecureFaceStore.load_identities()
+        active_identities = [ident for ident in identities if ident.get("is_enabled", True)]
+        if not active_identities:
+            print("[Coordinator] No enrolled face profiles to verify against.")
+            return False
+
+        self.ensure_overlay()
+        if self.overlay:
+            self.overlay._is_desktop_preview = True
+            if not IS_WINDOWS and GLib is not None:
+                GLib.idle_add(self.overlay.reset_to_idle)
+                GLib.idle_add(self.overlay.show_card)
+            elif IS_WINDOWS:
+                self.overlay.reset_to_idle()
+                self.overlay.show_card()
+
+        started = self.camera.start(device_index=self.settings.camera_index)
+        if not started:
+            print("[Coordinator] Could not start camera.")
+            if self.overlay:
+                if not IS_WINDOWS and GLib is not None:
+                    GLib.idle_add(self.overlay.finish_failure)
+                elif IS_WINDOWS:
+                    self.overlay.finish_failure()
+            return False
+
+        from blink.vision.liveness import LivenessAnalyzer, LivenessDecisionKind
+        liveness = LivenessAnalyzer()
+        t0 = time.time()
+        verified = False
+        liveness_confirmed = not self.settings.liveness_checks_enabled
+
+        def _pump_events():
+            if not IS_WINDOWS and Gtk is not None:
+                while Gtk.events_pending():
+                    Gtk.main_iteration_do(False)
+            elif IS_WINDOWS and self.overlay and hasattr(self.overlay, "root"):
+                try:
+                    self.overlay.root.update_idletasks()
+                    self.overlay.root.update()
+                except Exception:
+                    pass
+
+        try:
+            while (time.time() - t0) < timeout:
+                _pump_events()
+                res = self.camera.get_latest_frame()
+                if res is None:
+                    time.sleep(0.015)
+                    continue
+
+                _, frame = res
+                faces = self.detector.detect_faces(frame)
+                if faces:
+                    dominant = FaceDetector.select_dominant_face(faces, frame_width=frame.shape[1])
+                    if dominant is not None:
+                        aligned = self.aligner.align(dominant, frame)
+                        if aligned is not None:
+                            if self.settings.liveness_checks_enabled:
+                                fx, fy, fw, fh = dominant.bbox
+                                crop = frame[max(0, fy):min(frame.shape[0], fy + fh), max(0, fx):min(frame.shape[1], fx + fw)]
+                                decision = liveness.observe(frame, dominant, crop)
+                                if decision.kind == LivenessDecisionKind.CONFIRMED:
+                                    liveness_confirmed = True
+                                elif decision.kind == LivenessDecisionKind.DENIED:
+                                    break
+
+                            emb = self.embedder.compute_embedding(aligned, flip_augment=True)
+                            scored = self.embedder.score_identities(emb, active_identities)
+                            matched = self.embedder.best_match(scored, self.settings.match_threshold)
+                            if matched and liveness_confirmed:
+                                verified = True
+                                break
+
+                time.sleep(0.015)
+
+            if verified:
+                print(f"[Coordinator] Biometric authentication confirmed for '{purpose}'.")
+                if self.overlay:
+                    if not IS_WINDOWS and GLib is not None:
+                        GLib.idle_add(self.overlay.finish_success)
+                    elif IS_WINDOWS:
+                        self.overlay.finish_success()
+                t_end = time.time() + 0.60
+                while time.time() < t_end:
+                    _pump_events()
+                    time.sleep(0.016)
+            else:
+                print(f"[Coordinator] Biometric authentication failed/timed out for '{purpose}'.")
+                if self.overlay:
+                    if not IS_WINDOWS and GLib is not None:
+                        GLib.idle_add(self.overlay.finish_failure)
+                    elif IS_WINDOWS:
+                        self.overlay.finish_failure()
+                t_end = time.time() + 0.80
+                while time.time() < t_end:
+                    _pump_events()
+                    time.sleep(0.016)
+
+        finally:
+            self.camera.stop()
+            if self.overlay:
+                if not IS_WINDOWS and GLib is not None:
+                    GLib.idle_add(self.overlay.clean_close)
+                elif IS_WINDOWS:
+                    self.overlay.clean_close()
+            _pump_events()
+
+        return verified
 
     def _handle_locked(self) -> None:
         self.settings = BlinkSettings.load()

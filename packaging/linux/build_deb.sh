@@ -99,6 +99,61 @@ WantedBy=graphical-session.target
 EOF
 chmod 0644 "${STAGE_DIR}/usr/lib/systemd/user/blink.service"
 
+# 5b. Install Nemo Actions & MIME Associations for Blink Lock
+echo "[*] Installing file manager context actions and MIME types..."
+mkdir -p "${STAGE_DIR}/usr/share/nemo/actions"
+cat << 'EOF' > "${STAGE_DIR}/usr/share/nemo/actions/blink_lock.nemo_action"
+[Nemo Action]
+Active=true
+Name=Lock with Blink
+Comment=Protect and encrypt this file or folder with Blink Face ID
+Exec=/usr/bin/blink lock %F
+Icon-Name=blink
+Selection=notnone
+Extensions=any;
+Quote=double
+EOF
+
+cat << 'EOF' > "${STAGE_DIR}/usr/share/nemo/actions/blink_unlock.nemo_action"
+[Nemo Action]
+Active=true
+Name=Unlock with Blink
+Comment=Authenticate with Face ID to decrypt this item
+Exec=/usr/bin/blink unlock %F
+Icon-Name=blink
+Selection=notnone
+Extensions=blinklock;
+Quote=double
+EOF
+
+mkdir -p "${STAGE_DIR}/usr/share/mime/packages"
+cat << 'EOF' > "${STAGE_DIR}/usr/share/mime/packages/blink-lock.xml"
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+    <mime-type type="application/x-blink-lock">
+        <comment>Blink Encrypted Container</comment>
+        <glob pattern="*.blinklock"/>
+        <icon name="blink"/>
+    </mime-type>
+</mime-info>
+EOF
+
+cat << 'EOF' > "${STAGE_DIR}/usr/share/applications/blink-unlock.desktop"
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Blink Unlock
+GenericName=Face ID Unlocker
+Comment=Unlock encrypted files and folders with Face ID
+Exec=/usr/bin/blink unlock %f
+Icon=blink
+Terminal=false
+MimeType=application/x-blink-lock;
+Categories=Utility;Security;
+NoDisplay=true
+EOF
+chmod 0644 "${STAGE_DIR}/usr/share/applications/blink-unlock.desktop"
+
 # 6. Install scalable and multi-res icons
 echo "[*] Installing icons..."
 ICON_SRC="${PROJECT_ROOT}/blink/resources/final.png"
@@ -168,16 +223,19 @@ if [ ! -f "$RULE_FILE" ]; then
     udevadm trigger 2>/dev/null || true
 fi
 
-# Update desktop and icon databases
+# Update desktop, icon, and MIME databases
 if which update-desktop-database >/dev/null 2>&1; then
     update-desktop-database -q /usr/share/applications || true
+fi
+if which update-mime-database >/dev/null 2>&1; then
+    update-mime-database /usr/share/mime || true
 fi
 if which gtk-update-icon-cache >/dev/null 2>&1; then
     gtk-update-icon-cache -q -f -t /usr/share/icons/hicolor || true
 fi
 
 echo "=========================================================="
-echo " Blink Face ID v2.0.0 installed successfully!"
+echo " Blink Face ID v2.1.0 installed successfully!"
 echo " 1. Run 'blink settings' to enroll your face & password."
 echo " 2. Run 'systemctl --user enable --now blink.service'"
 echo "=========================================================="

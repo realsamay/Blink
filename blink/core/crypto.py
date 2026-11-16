@@ -65,6 +65,13 @@ class SecureCredentialManager:
         cls._last_activity = time.time()
 
     @classmethod
+    def get_key(cls) -> bytes:
+        if not cls.is_session_unlocked():
+            cls.unlock_session()
+        assert cls._cached_key is not None
+        return cls._cached_key
+
+    @classmethod
     def lock_session(cls) -> None:
         cls._cached_key = None
         cls._last_activity = 0.0

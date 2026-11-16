@@ -39,11 +39,14 @@ hidden_imports = [
     "webbrowser",
     "mimetypes",
     "blink.core.paths",
+    "blink.core.lock_manager",
     "blink.ui.web_server",
     "blink.ui.settings_window_win",
     "blink.ui.notch_overlay_win",
     "blink.system.lock_monitor_win",
     "blink.system.keystroke_injector_win",
+    "tarfile",
+    "winreg",
 ]
 
 a = Analysis(

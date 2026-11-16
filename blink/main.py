@@ -182,6 +182,96 @@ def run_status():
     print("=" * 50)
 
 
+def notify(title: str, message: str) -> None:
+    if not IS_WINDOWS:
+        try:
+            subprocess.run(["notify-send", "-i", "blink", title, message], check=False)
+        except Exception:
+            pass
+
+
+def run_lock_command(target_path: str) -> None:
+    from blink.core.lock_manager import BlinkLockManager
+    mgr = BlinkLockManager.get_instance()
+    try:
+        res = mgr.lock_path(target_path)
+        msg = f"Locked: {res['name']} -> {Path(res['locked_path']).name}"
+        print(f"[Blink Lock] {msg}")
+        notify("Blink Lock", f"Successfully locked and encrypted {res['name']}")
+    except Exception as e:
+        print(f"[Blink Lock] Error locking '{target_path}': {e}")
+        notify("Blink Lock Error", str(e))
+
+
+def run_unlock_command(target_path: str) -> None:
+    from blink.core.lock_manager import BlinkLockManager
+    from blink.core.coordinator import FaceUnlockCoordinator
+    from blink.ui.notch_overlay import NotchOverlayWindow
+    mgr = BlinkLockManager.get_instance()
+    p = Path(target_path).resolve()
+    if not p.exists():
+        print(f"[Blink Lock] Target not found: {target_path}")
+        return
+
+    overlay = NotchOverlayWindow()
+    overlay._is_desktop_preview = True
+    coordinator = FaceUnlockCoordinator(overlay=overlay)
+    item_name = p.name[:-10] if p.name.endswith(".blinklock") else p.name
+    print(f"[Blink Lock] Authenticating with Face ID to unlock '{item_name}'...")
+    verified = coordinator.authenticate_face(purpose=f"Unlock {item_name}")
+    if verified:
+        try:
+            restored = mgr.unlock_path(target_path)
+            print(f"[Blink Lock] Successfully decrypted and restored: {restored}")
+            notify("Blink Lock", f"Unlocked {item_name}")
+            if not IS_WINDOWS:
+                try:
+                    subprocess.run(["gio", "open", str(restored)], check=False)
+                except Exception:
+                    pass
+            else:
+                try:
+                    subprocess.run(["explorer.exe", f"/select,{restored}"], check=False)
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"[Blink Lock] Decryption error: {e}")
+            notify("Blink Lock Error", f"Decryption failed: {e}")
+    else:
+        print(f"[Blink Lock] Authentication failed or canceled. Access denied.")
+        notify("Blink Lock", "Authentication failed: Access Denied")
+
+
+def run_list_locked() -> None:
+    from blink.core.lock_manager import BlinkLockManager
+    mgr = BlinkLockManager.get_instance()
+    print("=" * 55)
+    print("               BLINK LOCK REGISTRY")
+    print("=" * 55)
+    print(f"Protection Active: {mgr.is_enabled()}")
+    print(f"Grace Period:      {mgr.get_grace_period()}s")
+    print("-" * 55)
+    print("[Protected Applications]")
+    apps = mgr.get_locked_apps()
+    if apps:
+        for a in apps:
+            print(f"  🔒 {a['name']} ({a['key']})")
+    else:
+        print("  (None enrolled yet. Use 'blink lock-app <name>')")
+
+    print("-" * 55)
+    print("[Encrypted Files & Folders (Vault)]")
+    items = mgr.get_locked_items()
+    if items:
+        for it in items:
+            sz = f"{it.get('size_bytes', 0) / 1024:.1f} KB"
+            print(f"  📦 {it['name']} [{it['type'].upper()}] - {sz}")
+            print(f"     Path: {it['locked_path']}")
+    else:
+        print("  (Vault empty. Right click any folder or use 'blink lock <path>')")
+    print("=" * 55)
+
+
 def install_desktop_entry():
     """Installs Blink into the system application menu and user desktop."""
     if IS_WINDOWS:
@@ -272,6 +362,12 @@ Exec={bin_path} test-scan
     except Exception:
         pass
 
+    try:
+        from blink.core.lock_manager import BlinkLockManager
+        BlinkLockManager.get_instance().install_context_menus()
+    except Exception as e:
+        print(f"[Blink] Notice: Failed to install context menus: {e}")
+
     print(f"[Blink] System application menu entry installed at: {app_desktop_file}")
 
 
@@ -356,6 +452,22 @@ def main():
     subparsers.add_parser("install-desktop", help="Install Blink into system application menu and desktop")
     subparsers.add_parser("test-scan", help="Test Face ID Dynamic Island scan & unlock animation on desktop")
 
+    # Blink Lock (App, Folder & File Protection)
+    p_lock = subparsers.add_parser("lock", help="Lock & encrypt a file or folder with Blink Face ID")
+    p_lock.add_argument("path", help="Path to file or folder to lock")
+
+    p_unlock = subparsers.add_parser("unlock", help="Authenticate with Face ID to decrypt & unlock an item")
+    p_unlock.add_argument("path", help="Path to .blinklock file to unlock")
+
+    p_lock_app = subparsers.add_parser("lock-app", help="Add an application to Blink App Lock")
+    p_lock_app.add_argument("app", help="Application name or process identifier (e.g. 'chrome', 'telegram')")
+
+    p_unlock_app = subparsers.add_parser("unlock-app", help="Remove an application from Blink App Lock")
+    p_unlock_app.add_argument("app", help="Application name or process identifier to remove")
+
+    subparsers.add_parser("list-locked", help="List all protected apps, files, and folders")
+    subparsers.add_parser("install-context-menu", help="Install right-click context menu integration")
+
     args = parser.parse_args()
 
     if args.command in ("preview", "web"):
@@ -370,6 +482,31 @@ def main():
         install_desktop_entry()
     elif args.command == "test-scan":
         run_test_scan()
+    elif args.command == "lock":
+        run_lock_command(args.path)
+    elif args.command == "unlock":
+        run_unlock_command(args.path)
+    elif args.command == "lock-app":
+        from blink.core.lock_manager import BlinkLockManager
+        mgr = BlinkLockManager.get_instance()
+        ok = mgr.add_locked_app(args.app.capitalize(), args.app.lower())
+        if ok:
+            print(f"[Blink Lock] Added application '{args.app}' to App Lock protection.")
+        else:
+            print(f"[Blink Lock] Application '{args.app}' is already locked.")
+    elif args.command == "unlock-app":
+        from blink.core.lock_manager import BlinkLockManager
+        mgr = BlinkLockManager.get_instance()
+        ok = mgr.remove_locked_app(args.app.lower())
+        if ok:
+            print(f"[Blink Lock] Removed application '{args.app}' from App Lock protection.")
+        else:
+            print(f"[Blink Lock] Application '{args.app}' was not in the locked list.")
+    elif args.command == "list-locked":
+        run_list_locked()
+    elif args.command == "install-context-menu":
+        from blink.core.lock_manager import BlinkLockManager
+        BlinkLockManager.get_instance().install_context_menus()
     else:
         # Default action: if no args or daemon, run daemon
         if args.command is None:
