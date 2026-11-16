@@ -40,6 +40,8 @@ hidden_imports = [
     "mimetypes",
     "blink.core.paths",
     "blink.core.lock_manager",
+    "blink.core.app_discovery",
+    "blink.ui.shield_window",
     "blink.ui.web_server",
     "blink.ui.settings_window_win",
     "blink.ui.notch_overlay_win",

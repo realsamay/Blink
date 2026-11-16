@@ -119,10 +119,22 @@ cat << 'EOF' > "${STAGE_DIR}/usr/share/nemo/actions/blink_unlock.nemo_action"
 Active=true
 Name=Unlock with Blink
 Comment=Authenticate with Face ID to decrypt this item
-Exec=/usr/bin/blink unlock %F
+Exec=/usr/bin/blink shield --path %F
 Icon-Name=blink
 Selection=notnone
-Extensions=blinklock;
+Extensions=any;
+Quote=double
+EOF
+
+cat << 'EOF' > "${STAGE_DIR}/usr/share/nemo/actions/blink_lock_app.nemo_action"
+[Nemo Action]
+Active=true
+Name=Lock App with Blink
+Comment=Require Face ID every time this application is opened
+Exec=/usr/bin/blink lock-desktop-app %F
+Icon-Name=blink
+Selection=notnone
+Extensions=desktop;
 Quote=double
 EOF
 
@@ -131,7 +143,10 @@ cat << 'EOF' > "${STAGE_DIR}/usr/share/mime/packages/blink-lock.xml"
 <?xml version="1.0" encoding="UTF-8"?>
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
     <mime-type type="application/x-blink-lock">
-        <comment>Blink Encrypted Container</comment>
+        <comment>Blink Protected Container</comment>
+        <magic priority="95">
+            <match type="string" offset="0" value="BLINKLOCK"/>
+        </magic>
         <glob pattern="*.blinklock"/>
         <icon name="blink"/>
     </mime-type>
@@ -145,7 +160,7 @@ Type=Application
 Name=Blink Unlock
 GenericName=Face ID Unlocker
 Comment=Unlock encrypted files and folders with Face ID
-Exec=/usr/bin/blink unlock %f
+Exec=/usr/bin/blink shield --path %f
 Icon=blink
 Terminal=false
 MimeType=application/x-blink-lock;

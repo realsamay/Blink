@@ -24,7 +24,7 @@ import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("GdkPixbuf", "2.0")
-from gi.repository import Gtk, Gdk, GLib, GdkPixbuf
+from gi.repository import Gtk, Gdk, GLib, GdkPixbuf, Pango
 import cairo
 
 from blink.core.config import BlinkSettings
@@ -1456,7 +1456,7 @@ class SettingsWindow(Gtk.Window):
         page.pack_start(self._create_group_heading("Protected Applications"), False, False, 0)
         self.group_locked_apps = self._create_inset_group()
         page.pack_start(self.group_locked_apps, False, False, 0)
-        self._refresh_locked_apps_rows()
+        self._build_installed_apps_view()
 
         page.pack_start(self._create_group_footnote(
             "Protected applications require Face ID authentication as soon as their window is opened or brought to focus."
@@ -1510,130 +1510,176 @@ class SettingsWindow(Gtk.Window):
         button.set_label("✓ Installed")
         button.set_sensitive(False)
 
-    def _refresh_locked_apps_rows(self) -> None:
+    def _build_installed_apps_view(self) -> None:
+        from blink.core.app_discovery import list_installed_applications
+
         for child in self.group_locked_apps.get_children():
             self.group_locked_apps.remove(child)
 
-        apps = self.lock_mgr.get_locked_apps()
-        if not apps:
-            self._add_inset_row(
-                self.group_locked_apps,
-                "No Protected Apps",
-                "Click 'Lock Application...' to protect sensitive apps"
-            )
-        else:
-            for app in apps:
-                app_key = app.get("key", "")
-                app_name = app.get("name", "App")
+        # 1. Search Bar & Count Row
+        h_search = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        h_search.set_margin_start(14)
+        h_search.set_margin_end(14)
+        h_search.set_margin_top(10)
+        h_search.set_margin_bottom(10)
 
-                h_ctrl = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-                lbl_badge = Gtk.Label(label="● Guarded")
-                lbl_badge.get_style_context().add_class("pill-badge-active")
-                h_ctrl.pack_start(lbl_badge, False, False, 0)
+        self.app_search_entry = Gtk.SearchEntry()
+        self.app_search_entry.set_placeholder_text("Search installed apps (Chrome, Discord, Terminal, Telegram...)...")
+        self.app_search_entry.connect("search-changed", self._on_app_search_changed)
+        h_search.pack_start(self.app_search_entry, True, True, 0)
 
-                btn_del = Gtk.Button(label="✕ Remove")
-                btn_del.get_style_context().add_class("btn-macos")
-                btn_del.connect("clicked", lambda b, k=app_key: self._on_remove_app_clicked(k))
-                h_ctrl.pack_start(btn_del, False, False, 0)
+        self.lbl_app_summary = Gtk.Label()
+        self.lbl_app_summary.get_style_context().add_class("row-desc")
+        h_search.pack_end(self.lbl_app_summary, False, False, 0)
 
-                self._add_inset_row(
-                    self.group_locked_apps,
-                    app_name,
-                    f"Process ID / Window Class: {app_key}",
-                    h_ctrl
-                )
+        self.group_locked_apps.pack_start(h_search, False, False, 0)
 
-        # Bottom Action Row
-        btn_add = Gtk.Button(label="➕ Lock Application...")
-        btn_add.get_style_context().add_class("btn-macos-primary")
-        btn_add.connect("clicked", self._show_add_app_dialog)
-        self._add_inset_row(
-            self.group_locked_apps,
-            "Add Application",
-            "Select from popular applications or enter process name",
-            btn_add,
-            is_last=True
-        )
+        # Separator line
+        sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        self.group_locked_apps.pack_start(sep, False, False, 0)
+
+        # 2. Scrollable App List
+        scroll_apps = Gtk.ScrolledWindow()
+        scroll_apps.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll_apps.set_min_content_height(280)
+        scroll_apps.set_max_content_height(340)
+
+        self.app_list_box = Gtk.ListBox()
+        self.app_list_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.app_list_box.set_filter_func(self._filter_app_row)
+        self.app_list_box.set_sort_func(self._sort_app_row)
+        scroll_apps.add(self.app_list_box)
+        self.group_locked_apps.pack_start(scroll_apps, True, True, 0)
+
+        # Populate with installed user applications
+        installed = list_installed_applications()
+        locked_keys = {a.get("key", "").lower(): a for a in self.lock_mgr.get_locked_apps()}
+
+        # Also add any custom locked apps that might not have a .desktop file
+        all_apps = list(installed)
+        for lk, l_info in locked_keys.items():
+            if not any(a["key"] == lk for a in all_apps):
+                all_apps.append({
+                    "name": l_info.get("name", lk.capitalize()),
+                    "key": lk,
+                    "exec": l_info.get("exe", lk),
+                    "icon": "application-x-executable",
+                    "comment": "Custom Application",
+                })
+
+        for app in all_apps:
+            row = self._create_app_list_row(app, is_locked=(app["key"] in locked_keys))
+            self.app_list_box.add(row)
+
+        self._update_app_summary_count()
         self.group_locked_apps.show_all()
 
-    def _on_remove_app_clicked(self, app_key: str) -> None:
-        self.lock_mgr.remove_locked_app(app_key)
-        self._refresh_locked_apps_rows()
+    def _create_app_list_row(self, app: Dict[str, Any], is_locked: bool) -> Gtk.ListBoxRow:
+        row = Gtk.ListBoxRow()
+        row._app_data = app
+        row._is_locked = is_locked
 
-    def _show_add_app_dialog(self, button: Gtk.Button) -> None:
-        dialog = Gtk.Dialog(
-            title="Lock Application",
-            parent=self,
-            flags=Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT
-        )
-        dialog.set_default_size(460, 400)
-        dialog.set_resizable(False)
+        h_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        h_box.set_margin_start(14)
+        h_box.set_margin_end(14)
+        h_box.set_margin_top(8)
+        h_box.set_margin_bottom(8)
 
-        area = dialog.get_content_area()
-        area.set_spacing(12)
-        area.set_border_width(18)
+        # App Icon
+        icon_w = self._get_app_icon_widget(app.get("icon"), size=36)
+        h_box.pack_start(icon_w, False, False, 0)
 
-        lbl_t = Gtk.Label(label="<span size='large' weight='bold'>Choose Application to Protect</span>")
-        lbl_t.set_use_markup(True)
-        lbl_t.set_xalign(0)
-        area.pack_start(lbl_t, False, False, 0)
+        # Name & Details
+        v_info = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        lbl_name = Gtk.Label(label=app.get("name", "App"))
+        lbl_name.set_xalign(0)
+        lbl_name.get_style_context().add_class("row-title")
 
-        lbl_desc = Gtk.Label(label="Select a common app or type a process/window class name:")
+        sub_desc = app.get("comment") or app.get("exec", "")
+        lbl_desc = Gtk.Label(label=sub_desc)
         lbl_desc.set_xalign(0)
+        lbl_desc.set_ellipsize(Pango.EllipsizeMode.END)
+        lbl_desc.set_max_width_chars(42)
         lbl_desc.get_style_context().add_class("row-desc")
-        area.pack_start(lbl_desc, False, False, 0)
 
-        flow = Gtk.FlowBox()
-        flow.set_max_children_per_line(2)
-        flow.set_selection_mode(Gtk.SelectionMode.NONE)
+        v_info.pack_start(lbl_name, False, False, 0)
+        v_info.pack_start(lbl_desc, False, False, 0)
+        h_box.pack_start(v_info, True, True, 0)
 
-        presets = [
-            ("Google Chrome", "google-chrome"),
-            ("Mozilla Firefox", "firefox"),
-            ("Discord", "discord"),
-            ("Telegram", "telegram-desktop"),
-            ("VS Code", "code"),
-            ("Terminal", "x-terminal-emulator"),
-            ("Files (Nemo)", "nemo"),
-            ("Settings", "cinnamon-settings"),
-        ]
+        # Status badge
+        lbl_badge = Gtk.Label(label="● Guarded" if is_locked else "")
+        lbl_badge.get_style_context().add_class("pill-badge-active" if is_locked else "row-desc")
+        lbl_badge.set_visible(is_locked)
+        row._badge_widget = lbl_badge
+        h_box.pack_start(lbl_badge, False, False, 6)
 
-        entry_name = Gtk.Entry()
-        entry_name.set_placeholder_text("App Display Name (e.g. Spotify)")
+        # Toggle Switch
+        sw = Gtk.Switch()
+        sw.set_valign(Gtk.Align.CENTER)
+        sw.set_active(is_locked)
+        sw.connect("state-set", lambda s, state, r=row, a=app: self._on_app_switch_toggled(r, a, state))
+        h_box.pack_start(sw, False, False, 0)
 
-        entry_key = Gtk.Entry()
-        entry_key.set_placeholder_text("Process / Class Name (e.g. spotify)")
+        row.add(h_box)
+        return row
 
-        def _select_preset(p_name, p_key):
-            entry_name.set_text(p_name)
-            entry_key.set_text(p_key)
+    def _get_app_icon_widget(self, icon_str: Optional[str], size: int = 36) -> Gtk.Widget:
+        theme = Gtk.IconTheme.get_default()
+        if icon_str:
+            if os.path.exists(icon_str):
+                try:
+                    pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(icon_str, size, size, True)
+                    return Gtk.Image.new_from_pixbuf(pb)
+                except Exception:
+                    pass
+            if theme.has_icon(icon_str):
+                return Gtk.Image.new_from_icon_name(icon_str, Gtk.IconSize.DND)
+        return Gtk.Image.new_from_icon_name("application-x-executable", Gtk.IconSize.DND)
 
-        for p_name, p_key in presets:
-            btn_p = Gtk.Button(label=f"🔒 {p_name}")
-            btn_p.get_style_context().add_class("btn-macos")
-            btn_p.connect("clicked", lambda b, n=p_name, k=p_key: _select_preset(n, k))
-            flow.add(btn_p)
+    def _on_app_switch_toggled(self, row: Gtk.ListBoxRow, app: Dict[str, Any], state: bool) -> bool:
+        row._is_locked = state
+        app_key = app.get("key", "").lower()
+        app_name = app.get("name", "Application")
+        app_exe = app.get("exec", app_key)
 
-        area.pack_start(flow, False, False, 4)
+        if state:
+            self.lock_mgr.add_locked_app(app_name, app_key, app_exe)
+            row._badge_widget.set_text("● Guarded")
+            row._badge_widget.get_style_context().add_class("pill-badge-active")
+            row._badge_widget.set_visible(True)
+        else:
+            self.lock_mgr.remove_locked_app(app_key)
+            row._badge_widget.set_visible(False)
 
-        v_custom = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        v_custom.pack_start(entry_name, False, False, 0)
-        v_custom.pack_start(entry_key, False, False, 0)
-        area.pack_start(v_custom, False, False, 4)
+        self._update_app_summary_count()
+        self.app_list_box.invalidate_sort()
+        return False
 
-        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
-        btn_ok = dialog.add_button("Lock Application", Gtk.ResponseType.OK)
-        btn_ok.get_style_context().add_class("btn-macos-primary")
+    def _filter_app_row(self, row: Gtk.ListBoxRow) -> bool:
+        query = self.app_search_entry.get_text().strip().lower()
+        if not query:
+            return True
+        app = getattr(row, "_app_data", {})
+        name = app.get("name", "").lower()
+        key = app.get("key", "").lower()
+        comment = app.get("comment", "").lower()
+        return query in name or query in key or query in comment
 
-        dialog.show_all()
-        resp = dialog.run()
-        if resp == Gtk.ResponseType.OK:
-            name = entry_name.get_text().strip()
-            key = entry_key.get_text().strip()
-            if key:
-                self.lock_mgr.add_locked_app(name or key.capitalize(), key)
-                self._refresh_locked_apps_rows()
-        dialog.destroy()
+    def _sort_app_row(self, row1: Gtk.ListBoxRow, row2: Gtk.ListBoxRow) -> int:
+        l1 = getattr(row1, "_is_locked", False)
+        l2 = getattr(row2, "_is_locked", False)
+        if l1 != l2:
+            return -1 if l1 else 1
+        name1 = getattr(row1, "_app_data", {}).get("name", "").lower()
+        name2 = getattr(row2, "_app_data", {}).get("name", "").lower()
+        return (name1 > name2) - (name1 < name2)
+
+    def _on_app_search_changed(self, entry: Gtk.SearchEntry) -> None:
+        self.app_list_box.invalidate_filter()
+
+    def _update_app_summary_count(self) -> None:
+        locked_cnt = len(self.lock_mgr.get_locked_apps())
+        self.lbl_app_summary.set_text(f"{locked_cnt} Guarded")
 
     def _refresh_vault_rows(self) -> None:
         for child in self.group_vault.get_children():
@@ -1750,24 +1796,16 @@ class SettingsWindow(Gtk.Window):
         if self.vision_worker is not None:
             self.vision_worker.stop_worker()
 
-        from blink.core.coordinator import FaceUnlockCoordinator
-        from blink.ui.notch_overlay import NotchOverlayWindow
-        overlay = NotchOverlayWindow()
-        overlay._is_desktop_preview = True
-        coord = FaceUnlockCoordinator(overlay=overlay)
-        verified = coord.authenticate_face(purpose=f"Unlock {item_name}")
-        if verified:
-            try:
-                restored = self.lock_mgr.unlock_path(locked_path)
-                self._refresh_vault_rows()
-                try:
-                    subprocess.run(["gio", "open", str(restored)], check=False)
-                except Exception:
-                    pass
-            except Exception as e:
-                self._show_error_dialog(f"Failed to unlock item:\n{e}")
+        # Launch shield subprocess for isolated biometric verification
+        main_py = Path(__file__).resolve().parent.parent / "main.py"
+        bin_path = shutil.which("blink")
+        if bin_path and os.path.exists(bin_path):
+            cmd = [bin_path, "shield", "--path", locked_path]
         else:
-            self._show_error_dialog("Face ID authentication failed. Access denied.")
+            cmd = [sys.executable, str(main_py), "shield", "--path", locked_path]
+
+        subprocess.run(cmd)
+        self._refresh_vault_rows()
 
         if self._active_page in ("face_id", "camera", "diagnostics"):
             self._start_vision_pipeline()

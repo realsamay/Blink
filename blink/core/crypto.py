@@ -139,6 +139,15 @@ class SecureCredentialManager:
             return None
 
     @classmethod
+    def verify_password(cls, candidate: str) -> bool:
+        """Verifies if candidate password matches enrolled credentials using constant-time comparison."""
+        stored = cls.read_password()
+        if not stored:
+            return False
+        import hmac
+        return hmac.compare_digest(candidate, stored)
+
+    @classmethod
     def remove_password(cls) -> None:
         if CREDENTIALS_FILE.exists():
             CREDENTIALS_FILE.unlink()

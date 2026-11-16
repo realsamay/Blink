@@ -203,43 +203,151 @@ def run_lock_command(target_path: str) -> None:
         notify("Blink Lock Error", str(e))
 
 
-def run_unlock_command(target_path: str) -> None:
+def _unminimize_window(win_id: Optional[str]) -> None:
+    if not win_id:
+        return
+    if IS_WINDOWS:
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            hwnd = int(win_id)
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+            user32.SetForegroundWindow(hwnd)
+        except Exception:
+            pass
+    else:
+        try:
+            import ctypes
+            x11 = ctypes.cdll.LoadLibrary("libX11.so.6")
+            x11.XOpenDisplay.restype = ctypes.c_void_p
+            disp = x11.XOpenDisplay(None)
+            if disp:
+                win_num = int(win_id, 16) if win_id.startswith("0x") else int(win_id)
+                x11.XMapWindow(ctypes.c_void_p(disp), ctypes.c_ulong(win_num))
+                x11.XRaiseWindow(ctypes.c_void_p(disp), ctypes.c_ulong(win_num))
+                x11.XFlush(ctypes.c_void_p(disp))
+                x11.XCloseDisplay(ctypes.c_void_p(disp))
+        except Exception:
+            pass
+
+
+def run_shield_command(
+    target_path: Optional[str] = None,
+    app_key: Optional[str] = None,
+    win_id: Optional[str] = None,
+) -> None:
     from blink.core.lock_manager import BlinkLockManager
-    from blink.core.coordinator import FaceUnlockCoordinator
-    from blink.ui.notch_overlay import NotchOverlayWindow
+    from blink.ui.shield_window import BlinkShieldWindow
+    from blink.core.app_discovery import get_app_info
+
     mgr = BlinkLockManager.get_instance()
-    p = Path(target_path).resolve()
+
+    if app_key:
+        clean_key = app_key.strip().lower()
+        if mgr.is_app_session_unlocked(clean_key):
+            print(f"[Blink Shield] App '{clean_key}' is already authorized within grace window.")
+            _unminimize_window(win_id)
+            sys.exit(0)
+
+        info = get_app_info(clean_key)
+        app_name = info["name"]
+        app_icon = info.get("icon")
+
+        print(f"[Blink Shield] Presenting Face ID verification for '{app_name}'...")
+        authenticated = BlinkShieldWindow.launch(
+            target_type="app",
+            target_name=app_name,
+            target_key=clean_key,
+            target_icon=app_icon,
+        )
+
+        if authenticated:
+            print(f"[Blink Shield] Access granted for '{app_name}'.")
+            mgr.grant_app_session_unlock(clean_key)
+            _unminimize_window(win_id)
+            sys.exit(0)
+        else:
+            print(f"[Blink Shield] Access denied or cancelled for '{app_name}'.")
+            sys.exit(1)
+
+    elif target_path:
+        p = Path(target_path).resolve()
+        if not p.exists():
+            print(f"[Blink Shield] Target not found: {target_path}")
+            sys.exit(1)
+
+        meta = mgr.get_container_metadata(p)
+        if meta:
+            item_name = meta.get("name", p.name)
+            item_type = meta.get("type", "folder" if p.is_dir() else "file")
+        else:
+            item_name = p.name[:-10] if p.name.endswith(".blinklock") else p.name
+            item_type = "folder" if p.is_dir() else "file"
+
+        print(f"[Blink Shield] Presenting Face ID verification for {item_type} '{item_name}'...")
+        authenticated = BlinkShieldWindow.launch(
+            target_type=item_type,
+            target_name=item_name,
+            target_key=str(p),
+        )
+
+        if authenticated:
+            try:
+                restored = mgr.unlock_path(p)
+                print(f"[Blink Shield] Decrypted & restored {item_type}: {restored}")
+                notify("Blink Lock", f"Unlocked {item_name}")
+                if not IS_WINDOWS:
+                    subprocess.run(["gio", "open", str(restored)], check=False)
+                else:
+                    subprocess.run(["explorer.exe", f"/select,{restored}"], check=False)
+                sys.exit(0)
+            except Exception as e:
+                print(f"[Blink Shield] Error unlocking {p.name}: {e}")
+                notify("Blink Lock Error", str(e))
+                sys.exit(1)
+        else:
+            print(f"[Blink Shield] Access denied or cancelled for {item_type} '{item_name}'.")
+            sys.exit(1)
+    else:
+        print("[Blink Shield] Missing --app or --path parameter.")
+        sys.exit(1)
+
+
+def run_lock_desktop_app(desktop_file_path: str) -> None:
+    from blink.core.lock_manager import BlinkLockManager
+    import configparser
+
+    p = Path(desktop_file_path).resolve()
     if not p.exists():
-        print(f"[Blink Lock] Target not found: {target_path}")
+        print(f"[Blink Lock] Desktop file not found: {p}")
         return
 
-    overlay = NotchOverlayWindow()
-    overlay._is_desktop_preview = True
-    coordinator = FaceUnlockCoordinator(overlay=overlay)
-    item_name = p.name[:-10] if p.name.endswith(".blinklock") else p.name
-    print(f"[Blink Lock] Authenticating with Face ID to unlock '{item_name}'...")
-    verified = coordinator.authenticate_face(purpose=f"Unlock {item_name}")
-    if verified:
-        try:
-            restored = mgr.unlock_path(target_path)
-            print(f"[Blink Lock] Successfully decrypted and restored: {restored}")
-            notify("Blink Lock", f"Unlocked {item_name}")
-            if not IS_WINDOWS:
-                try:
-                    subprocess.run(["gio", "open", str(restored)], check=False)
-                except Exception:
-                    pass
-            else:
-                try:
-                    subprocess.run(["explorer.exe", f"/select,{restored}"], check=False)
-                except Exception:
-                    pass
-        except Exception as e:
-            print(f"[Blink Lock] Decryption error: {e}")
-            notify("Blink Lock Error", f"Decryption failed: {e}")
-    else:
-        print(f"[Blink Lock] Authentication failed or canceled. Access denied.")
-        notify("Blink Lock", "Authentication failed: Access Denied")
+    try:
+        cp = configparser.RawConfigParser()
+        cp.read(p, encoding="utf-8")
+        entry = cp["Desktop Entry"]
+        name = entry.get("Name", p.stem).strip()
+        exec_cmd = entry.get("Exec", "").strip()
+        wm_class = entry.get("StartupWMClass", "").strip()
+        base_bin = exec_cmd.split()[0].replace('"', '').replace("'", "")
+        base_name = Path(base_bin).name.lower()
+        key = (wm_class or base_name).strip().lower()
+
+        mgr = BlinkLockManager.get_instance()
+        ok = mgr.add_locked_app(name=name, key=key, exe=base_name)
+        if ok:
+            print(f"[Blink Lock] Successfully locked application '{name}' ({key}).")
+            notify("Blink Lock", f"Protected '{name}' with Face ID")
+        else:
+            print(f"[Blink Lock] Application '{name}' is already protected.")
+            notify("Blink Lock", f"'{name}' is already protected")
+    except Exception as e:
+        print(f"[Blink Lock] Failed to parse desktop file: {e}")
+        notify("Blink Lock Error", f"Failed to lock app: {e}")
+
+
+def run_unlock_command(target_path: str) -> None:
+    run_shield_command(target_path=target_path)
 
 
 def run_list_locked() -> None:
@@ -457,7 +565,15 @@ def main():
     p_lock.add_argument("path", help="Path to file or folder to lock")
 
     p_unlock = subparsers.add_parser("unlock", help="Authenticate with Face ID to decrypt & unlock an item")
-    p_unlock.add_argument("path", help="Path to .blinklock file to unlock")
+    p_unlock.add_argument("path", help="Path to locked item to unlock")
+
+    p_shield = subparsers.add_parser("shield", help="Present iOS-style Face ID shield authentication dialog")
+    p_shield.add_argument("--path", help="Path to locked file or folder to unlock", default=None)
+    p_shield.add_argument("--app", help="Application key to authorize", default=None)
+    p_shield.add_argument("--win-id", help="Window ID to restore upon authorization", default=None)
+
+    p_lock_desktop = subparsers.add_parser("lock-desktop-app", help="Lock application from a .desktop file")
+    p_lock_desktop.add_argument("desktop_file", help="Path to .desktop file")
 
     p_lock_app = subparsers.add_parser("lock-app", help="Add an application to Blink App Lock")
     p_lock_app.add_argument("app", help="Application name or process identifier (e.g. 'chrome', 'telegram')")
@@ -486,6 +602,10 @@ def main():
         run_lock_command(args.path)
     elif args.command == "unlock":
         run_unlock_command(args.path)
+    elif args.command == "shield":
+        run_shield_command(target_path=args.path, app_key=args.app, win_id=args.win_id)
+    elif args.command == "lock-desktop-app":
+        run_lock_desktop_app(args.desktop_file)
     elif args.command == "lock-app":
         from blink.core.lock_manager import BlinkLockManager
         mgr = BlinkLockManager.get_instance()

@@ -32,9 +32,9 @@ class TestBlinkLockManager(unittest.TestCase):
 
         # 2. Lock the file
         record = self.mgr.lock_path(test_file)
-        self.assertFalse(test_file.exists(), "Original file must be removed after locking!")
         locked_path = Path(record["locked_path"])
-        self.assertTrue(locked_path.exists(), "Encrypted .blinklock file must exist!")
+        self.assertTrue(locked_path.exists(), "Locked container must exist!")
+        self.assertTrue(self.mgr.is_path_locked(locked_path))
 
         # 3. Verify magic bytes on disk
         raw_header = locked_path.read_bytes()[:len(MAGIC_HEADER)]
@@ -43,7 +43,6 @@ class TestBlinkLockManager(unittest.TestCase):
         # 4. Unlock the file
         restored_path = self.mgr.unlock_path(locked_path)
         self.assertTrue(Path(restored_path).exists(), "Original file must be restored!")
-        self.assertFalse(locked_path.exists(), ".blinklock container must be removed after unlock!")
         self.assertEqual(Path(restored_path).read_bytes(), secret_content)
 
     def test_folder_lock_and_unlock(self):
@@ -57,15 +56,15 @@ class TestBlinkLockManager(unittest.TestCase):
 
         # 2. Lock the folder
         record = self.mgr.lock_path(test_folder)
-        self.assertFalse(test_folder.exists(), "Original directory must be removed after locking!")
         locked_path = Path(record["locked_path"])
         self.assertTrue(locked_path.exists())
-        self.assertTrue(str(locked_path).endswith(".blinklock"))
+        self.assertTrue(locked_path.is_file(), "Locked folder container must be an encrypted file!")
+        self.assertFalse(locked_path.is_dir(), "Original directory must be replaced!")
+        self.assertTrue(self.mgr.is_path_locked(locked_path))
 
         # 3. Unlock the folder
         restored = self.mgr.unlock_path(locked_path)
         self.assertTrue(Path(restored).is_dir(), "Restored item must be a directory!")
-        self.assertFalse(locked_path.exists())
         self.assertEqual((Path(restored) / "file1.txt").read_text(), "Hello inside folder 1")
         self.assertEqual((Path(restored) / "nested" / "file2.txt").read_text(), "Hello inside nested folder 2")
 

@@ -763,51 +763,81 @@ def run_windows_settings():
             btn_del.pack(side="right")
 
     def open_add_app_dialog():
+        from blink.core.app_discovery import list_installed_applications
         dlg = tk.Toplevel(root)
         dlg.title("Lock Application")
-        dlg.geometry("420x360")
+        dlg.geometry("460x480")
         dlg.configure(bg="#141418")
 
-        tk.Label(dlg, text="Select Application to Lock", font=("Segoe UI", 12, "bold"), fg="#FFFFFF", bg="#141418").pack(pady=(16, 6))
-        tk.Label(dlg, text="Choose a preset or type the process name (e.g. chrome.exe):", font=("Segoe UI", 9), fg="#8E8E93", bg="#141418").pack()
+        tk.Label(dlg, text="Select Application to Protect", font=("Segoe UI", 12, "bold"), fg="#FFFFFF", bg="#141418").pack(pady=(16, 4))
+        tk.Label(dlg, text="Choose from installed applications or enter custom process name:", font=("Segoe UI", 9), fg="#8E8E93", bg="#141418").pack()
 
-        p_frame = tk.Frame(dlg, bg="#141418")
-        p_frame.pack(fill="x", padx=20, pady=10)
+        # Search Bar
+        search_frame = tk.Frame(dlg, bg="#141418")
+        search_frame.pack(fill="x", padx=20, pady=(10, 4))
+        e_search = tk.Entry(search_frame, font=("Segoe UI", 10), bg="#24242C", fg="#FFFFFF", insertbackground="#FFFFFF")
+        e_search.pack(fill="x")
 
-        e_name = tk.Entry(dlg, font=("Segoe UI", 10), bg="#24242C", fg="#FFFFFF", insertbackground="#FFFFFF")
-        e_key = tk.Entry(dlg, font=("Segoe UI", 10), bg="#24242C", fg="#FFFFFF", insertbackground="#FFFFFF")
+        # Scrollable Apps List
+        list_frame = tk.Frame(dlg, bg="#1C1C22", highlightthickness=1, highlightbackground="#2C2C34")
+        list_frame.pack(fill="both", expand=True, padx=20, pady=6)
 
-        def select_preset(pname, pkey):
-            e_name.delete(0, tk.END)
-            e_name.insert(0, pname)
-            e_key.delete(0, tk.END)
-            e_key.insert(0, pkey)
+        apps_listbox = tk.Listbox(list_frame, font=("Segoe UI", 10), bg="#1C1C22", fg="#FFFFFF", selectbackground="#0A84FF",
+                                  selectforeground="#FFFFFF", bd=0, highlightthickness=0)
+        apps_scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=apps_listbox.yview)
+        apps_listbox.config(yscrollcommand=apps_scrollbar.set)
+        apps_scrollbar.pack(side="right", fill="y")
+        apps_listbox.pack(side="left", fill="both", expand=True)
 
-        presets = [
-            ("Google Chrome", "chrome.exe"),
-            ("Mozilla Firefox", "firefox.exe"),
-            ("Discord", "Discord.exe"),
-            ("Telegram", "Telegram.exe"),
-            ("VS Code", "Code.exe"),
-            ("WhatsApp", "WhatsApp.exe"),
-        ]
+        installed_apps = list_installed_applications()
 
-        for i, (pn, pk) in enumerate(presets):
-            btn_p = tk.Button(p_frame, text=f"🔒 {pn}", font=("Segoe UI", 9), bg="#24242C", fg="#FFFFFF", relief="flat",
-                              command=lambda n=pn, k=pk: select_preset(n, k))
-            btn_p.grid(row=i//2, column=i%2, padx=6, pady=4, sticky="ew")
-        p_frame.columnconfigure(0, weight=1)
-        p_frame.columnconfigure(1, weight=1)
+        def populate_apps(query=""):
+            apps_listbox.delete(0, tk.END)
+            q = query.strip().lower()
+            for app in installed_apps:
+                name = app.get("name", "")
+                key = app.get("key", "")
+                if not q or q in name.lower() or q in key.lower():
+                    apps_listbox.insert(tk.END, f"{name} ({key})")
 
-        tk.Label(dlg, text="Application Name:", font=("Segoe UI", 9, "bold"), fg="#E5E5EA", bg="#141418").pack(anchor="w", padx=20)
-        e_name.pack(fill="x", padx=20, pady=(2, 6))
+        populate_apps()
+        e_search.bind("<KeyRelease>", lambda e: populate_apps(e_search.get()))
 
-        tk.Label(dlg, text="Executable / Process Name:", font=("Segoe UI", 9, "bold"), fg="#E5E5EA", bg="#141418").pack(anchor="w", padx=20)
-        e_key.pack(fill="x", padx=20, pady=(2, 12))
+        # Custom inputs
+        cust_frame = tk.Frame(dlg, bg="#141418")
+        cust_frame.pack(fill="x", padx=20, pady=(2, 6))
+
+        e_name = tk.Entry(cust_frame, font=("Segoe UI", 9), bg="#24242C", fg="#FFFFFF", insertbackground="#FFFFFF")
+        e_key = tk.Entry(cust_frame, font=("Segoe UI", 9), bg="#24242C", fg="#FFFFFF", insertbackground="#FFFFFF")
+
+        def on_list_select(event):
+            sel = apps_listbox.curselection()
+            if sel:
+                line = apps_listbox.get(sel[0])
+                if "(" in line and line.endswith(")"):
+                    pname = line[:line.rfind("(")].strip()
+                    pkey = line[line.rfind("(") + 1:-1].strip()
+                    e_name.delete(0, tk.END)
+                    e_name.insert(0, pname)
+                    e_key.delete(0, tk.END)
+                    e_key.insert(0, pkey)
+
+        apps_listbox.bind("<<ListboxSelect>>", on_list_select)
+
+        tk.Label(cust_frame, text="Or custom (Name / Process Exe):", font=("Segoe UI", 8), fg="#8E8E93", bg="#141418").pack(anchor="w")
+        e_name.pack(fill="x", pady=2)
+        e_key.pack(fill="x", pady=2)
 
         def on_add_confirm():
             n = e_name.get().strip()
             k = e_key.get().strip()
+            if not k:
+                sel = apps_listbox.curselection()
+                if sel:
+                    line = apps_listbox.get(sel[0])
+                    if "(" in line and line.endswith(")"):
+                        n = line[:line.rfind("(")].strip()
+                        k = line[line.rfind("(") + 1:-1].strip()
             if k:
                 lock_mgr.add_locked_app(n or k, k)
                 refresh_win_locked_apps()
@@ -857,14 +887,24 @@ def run_windows_settings():
             tk.Label(row, text=f"{prefix} {name}", font=("Segoe UI", 10, "bold"), fg="#FFFFFF", bg="#24242C").pack(side="left")
             tk.Label(row, text=f"[{itype} • {sz_str}]", font=("Segoe UI", 9), fg="#8E8E93", bg="#24242C").pack(side="left", padx=8)
 
-            def make_unlock_fn(locked_p=lp):
+            def make_unlock_fn(locked_p=lp, item_name=n, item_type=itype):
                 def _unlock():
-                    try:
-                        restored = lock_mgr.unlock_path(locked_p)
-                        messagebox.showinfo("Blink Lock", f"Successfully unlocked and decrypted:\n{restored}")
-                        refresh_win_vault()
-                    except Exception as e:
-                        messagebox.showerror("Blink Lock Error", f"Decryption failed:\n{e}")
+                    from blink.ui.shield_window import BlinkShieldWindow
+                    authenticated = BlinkShieldWindow.launch(
+                        target_type=item_type.lower(),
+                        target_name=item_name,
+                        target_key=locked_p,
+                    )
+                    if authenticated:
+                        try:
+                            restored = lock_mgr.unlock_path(locked_p)
+                            refresh_win_vault()
+                            try:
+                                subprocess.run(["explorer.exe", f"/select,{restored}"], check=False)
+                            except Exception:
+                                pass
+                        except Exception as e:
+                            messagebox.showerror("Blink Lock Error", f"Decryption failed:\n{e}")
                 return _unlock
 
             def make_del_fn(item_id=it.get("id")):

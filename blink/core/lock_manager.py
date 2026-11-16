@@ -177,22 +177,49 @@ class BlinkLockManager:
         data = self._load_raw()
         return list(data.get("locked_items", []))
 
+    def is_path_locked(self, target_path: str | Path) -> bool:
+        """Checks if target path is an existing Blink Lock encrypted container."""
+        p = Path(target_path).resolve()
+        if not p.exists() or p.is_dir():
+            return False
+        try:
+            with open(p, "rb") as f:
+                return f.read(len(MAGIC_HEADER)) == MAGIC_HEADER
+        except Exception:
+            return False
+
+    def get_container_metadata(self, target_path: str | Path) -> Optional[Dict[str, Any]]:
+        """Reads metadata from an encrypted container without full payload decryption."""
+        p = Path(target_path).resolve()
+        if not p.exists() or p.is_dir():
+            return None
+        try:
+            with open(p, "rb") as f:
+                header = f.read(len(MAGIC_HEADER))
+                if header != MAGIC_HEADER:
+                    return None
+                nonce = f.read(12)
+                ciphertext = f.read()
+            key = SecureCredentialManager.get_key()
+            aesgcm = AESGCM(key)
+            decrypted = aesgcm.decrypt(nonce, ciphertext, ASSOCIATED_DATA)
+            header_len = int.from_bytes(decrypted[:4], byteorder="big")
+            return json.loads(decrypted[4:4 + header_len].decode("utf-8"))
+        except Exception:
+            return None
+
     def lock_path(self, target_path: str | Path) -> Dict[str, Any]:
-        """Encrypts a file or directory into a .blinklock AES-256-GCM package.
-        Deletes the plain source upon successful encryption.
+        """Encrypts a file or directory into a clean AES-256-GCM package.
+        Keeps original clean name without ugly .blinklock extension.
         """
         p = Path(target_path).resolve()
         if not p.exists():
             raise FileNotFoundError(f"Path does not exist: {p}")
 
-        if p.name.endswith(".blinklock"):
-            raise ValueError(f"Target is already a locked item: {p.name}")
+        if self.is_path_locked(p):
+            raise ValueError(f"Target '{p.name}' is already protected by Blink.")
 
         is_folder = p.is_dir()
-        dest_path = p.with_name(f"{p.name}.blinklock")
-        if dest_path.exists():
-            raise FileExistsError(f"A locked container already exists at {dest_path}")
-
         key = SecureCredentialManager.get_key()
         aesgcm = AESGCM(key)
         nonce = os.urandom(12)
@@ -222,24 +249,27 @@ class BlinkLockManager:
         full_blob = header_len + meta_bytes + raw_payload
         ciphertext = aesgcm.encrypt(nonce, full_blob, ASSOCIATED_DATA)
 
-        # Atomic write of the encrypted .blinklock package
-        temp_dest = dest_path.with_name(f".{dest_path.name}.tmp_{os.getpid()}")
+        # Atomic write of the encrypted package to a hidden temp file
+        temp_dest = p.with_name(f".{p.name}.blink_tmp_{os.getpid()}")
         try:
             with open(temp_dest, "wb") as f:
                 f.write(MAGIC_HEADER)
                 f.write(nonce)
                 f.write(ciphertext)
-            os.replace(temp_dest, dest_path)
         except Exception:
             if temp_dest.exists():
                 temp_dest.unlink()
             raise
 
-        # Cleanly remove the unencrypted original
+        # Cleanly remove the unencrypted original directory or file
         if is_folder:
             shutil.rmtree(p)
         else:
             p.unlink()
+
+        # Replace original path with the encrypted container (same clean name!)
+        os.replace(temp_dest, p)
+        dest_path = p
 
         # Update registry
         item_record = {
@@ -257,22 +287,19 @@ class BlinkLockManager:
         data["locked_items"] = locked
         self._save_raw(data)
 
-        print(f"[BlinkLock] Successfully locked {p.name} -> {dest_path.name}")
+        print(f"[BlinkLock] Successfully locked {p.name} in-place.")
         return item_record
 
     def unlock_path(self, locked_path: str | Path, restore_dir: Optional[str | Path] = None) -> str:
-        """Decrypts a .blinklock package and restores the original file or directory structure."""
+        """Decrypts a Blink Lock package and restores the original file or directory structure."""
         lp = Path(locked_path).resolve()
         if not lp.exists():
             raise FileNotFoundError(f"Locked file not found: {lp}")
 
-        if not lp.name.endswith(".blinklock"):
-            raise ValueError(f"File is not a .blinklock container: {lp.name}")
-
         with open(lp, "rb") as f:
             header = f.read(len(MAGIC_HEADER))
             if header != MAGIC_HEADER:
-                raise ValueError(f"Invalid Blink Lock container header: {lp.name}")
+                raise ValueError(f"File is not a valid Blink Lock container: {lp.name}")
             nonce = f.read(12)
             ciphertext = f.read()
 
@@ -288,7 +315,7 @@ class BlinkLockManager:
         payload = decrypted[4 + header_len:]
 
         item_type = meta.get("type", "file")
-        original_name = meta.get("name", lp.name[:-10])
+        original_name = meta.get("name", lp.name[:-10] if lp.name.endswith(".blinklock") else lp.name)
 
         if restore_dir is not None:
             dest_target = Path(restore_dir).resolve() / original_name
@@ -303,9 +330,10 @@ class BlinkLockManager:
         dest_target.parent.mkdir(parents=True, exist_ok=True)
 
         if item_type == "folder":
+            # Remove container file before extracting folder of the same name
+            lp.unlink()
             tar_buf = io.BytesIO(payload)
             with tarfile.open(fileobj=tar_buf, mode="r:gz") as tar:
-                # Path traversal check
                 target_dir = dest_target.parent
                 for member in tar.getmembers():
                     member_path = (target_dir / member.name).resolve()
@@ -319,10 +347,10 @@ class BlinkLockManager:
                 else:
                     tar.extractall(path=target_dir)
         else:
+            # Overwrite or write restored file
             dest_target.write_bytes(payload)
-
-        # Remove the .blinklock file
-        lp.unlink()
+            if dest_target != lp and lp.exists():
+                lp.unlink()
 
         # Update registry
         data = self._load_raw()
@@ -371,14 +399,25 @@ Quote=double
 Active=true
 Name=Unlock with Blink
 Comment=Authenticate with Face ID to decrypt this item
-Exec={bin_path} unlock %F
+Exec={bin_path} shield --path %F
 Icon-Name=blink
 Selection=notnone
-Extensions=blinklock;
+Extensions=any;
+Quote=double
+"""
+        lock_app_action = f"""[Nemo Action]
+Active=true
+Name=Lock App with Blink
+Comment=Require Face ID every time this application is opened
+Exec={bin_path} lock-desktop-app %F
+Icon-Name=blink
+Selection=notnone
+Extensions=desktop;
 Quote=double
 """
         (nemo_actions_dir / "blink_lock.nemo_action").write_text(lock_action, encoding="utf-8")
         (nemo_actions_dir / "blink_unlock.nemo_action").write_text(unlock_action, encoding="utf-8")
+        (nemo_actions_dir / "blink_lock_app.nemo_action").write_text(lock_app_action, encoding="utf-8")
 
         # 2. File Manager Scripts (Nemo, Nautilus, Caja)
         script_dirs = [
@@ -394,7 +433,7 @@ done
 """
         unlock_script = f"""#!/usr/bin/env bash
 for file in "$@"; do
-    "{bin_path}" unlock "$file"
+    "{bin_path}" shield --path "$file"
 done
 """
         for sdir in script_dirs:
@@ -410,13 +449,16 @@ done
             except Exception:
                 pass
 
-        # 3. Register .blinklock MIME type and default handler
+        # 3. Register .blinklock & magic byte MIME type and default handler
         mime_dir = Path.home() / ".local" / "share" / "mime" / "packages"
         mime_dir.mkdir(parents=True, exist_ok=True)
         mime_xml = """<?xml version="1.0" encoding="UTF-8"?>
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
     <mime-type type="application/x-blink-lock">
-        <comment>Blink Encrypted Container</comment>
+        <comment>Blink Protected Container</comment>
+        <magic priority="95">
+            <match type="string" offset="0" value="BLINKLOCK"/>
+        </magic>
         <glob pattern="*.blinklock"/>
         <icon name="blink"/>
     </mime-type>
@@ -424,7 +466,7 @@ done
 """
         (mime_dir / "blink-lock.xml").write_text(mime_xml, encoding="utf-8")
 
-        # 4. Desktop entry for opening .blinklock files
+        # 4. Desktop entry for opening Blink locked files
         app_dir = Path.home() / ".local" / "share" / "applications"
         app_dir.mkdir(parents=True, exist_ok=True)
         desktop_entry = f"""[Desktop Entry]
@@ -433,7 +475,7 @@ Type=Application
 Name=Blink Unlock
 GenericName=Face ID Unlocker
 Comment=Unlock encrypted files and folders with Face ID
-Exec={bin_path} unlock %f
+Exec={bin_path} shield --path %f
 Icon=blink
 Terminal=false
 MimeType=application/x-blink-lock;
@@ -664,10 +706,20 @@ class AppLockWatcher(threading.Thread):
         try:
             app_name = app.get("name", "Application")
             app_key = app.get("key", "")
-            print(f"[AppLockWatcher] Prompting Face ID for '{app_name}'...")
-            verified = self.coordinator.authenticate_face(purpose=f"Unlock {app_name}")
-            if verified:
+            print(f"[AppLockWatcher] Launching Face ID shield for '{app_name}'...")
+
+            main_py = Path(__file__).resolve().parent.parent / "main.py"
+            bin_path = shutil.which("blink")
+            if bin_path and os.path.exists(bin_path):
+                cmd = [bin_path, "shield", "--app", app_key, "--win-id", win_id_hex]
+            else:
+                cmd = [sys.executable, str(main_py), "shield", "--app", app_key, "--win-id", win_id_hex]
+
+            res = subprocess.run(cmd)
+            if res.returncode == 0:
+                print(f"[AppLockWatcher] Biometric unlock confirmed for '{app_name}'. Restoring window.")
                 self.lock_manager.grant_app_session_unlock(app_key)
+                self._last_active_window_id = win_id_hex
                 # Restore and raise window
                 try:
                     import ctypes
@@ -682,9 +734,8 @@ class AppLockWatcher(threading.Thread):
                         x11.XCloseDisplay(ctypes.c_void_p(disp))
                 except Exception:
                     pass
-                self._last_active_window_id = win_id_hex
             else:
-                print(f"[AppLockWatcher] Access denied for '{app_name}'.")
+                print(f"[AppLockWatcher] Authentication cancelled or denied for '{app_name}'. Window remains minimized.")
         finally:
             self._authenticating_lock.release()
 
@@ -692,13 +743,14 @@ class AppLockWatcher(threading.Thread):
         if not self._authenticating_lock.acquire(blocking=False):
             return
         try:
-            import ctypes
-            user32 = ctypes.windll.user32
             app_name = app.get("name", "Application")
             app_key = app.get("key", "")
-            verified = self.coordinator.authenticate_face(purpose=f"Unlock {app_name}")
-            if verified:
+            main_py = Path(__file__).resolve().parent.parent / "main.py"
+            res = subprocess.run([sys.executable, str(main_py), "shield", "--app", app_key, "--win-id", str(hwnd)])
+            if res.returncode == 0:
                 self.lock_manager.grant_app_session_unlock(app_key)
+                import ctypes
+                user32 = ctypes.windll.user32
                 user32.ShowWindow(hwnd, 9)  # SW_RESTORE
                 user32.SetForegroundWindow(hwnd)
         finally:
