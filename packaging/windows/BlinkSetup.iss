@@ -2,7 +2,7 @@
 ; Compiles into a standalone one-click Blink-Setup-x64.exe installer
 
 #define MyAppName "Blink"
-#define MyAppVersion "2.2.0"
+#define MyAppVersion "2.2.1"
 #define MyAppPublisher "Blink Biometrics"
 #define MyAppURL "https://github.com/realsamay/Blink"
 #define MyAppExeName "blink.exe"
@@ -33,12 +33,12 @@ UsePreviousAppDir=yes
 DirExistsWarning=no
 
 ; Version Information
-VersionInfoVersion=2.2.0.0
+VersionInfoVersion=2.2.1.0
 VersionInfoCompany=Blink Biometrics
 VersionInfoDescription=Blink Face ID Biometric Authentication
 VersionInfoCopyright=Copyright (C) 2026 Blink Biometrics. Released under GPLv3.
 VersionInfoProductName=Blink
-VersionInfoProductVersion=2.2.0.0
+VersionInfoProductVersion=2.2.1.0
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

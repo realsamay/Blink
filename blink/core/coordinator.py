@@ -310,7 +310,7 @@ class FaceUnlockCoordinator:
         self.cancel_scan()
 
     def _handle_lockscreen_activity(self) -> None:
-        """Called when user activity (Enter/Space/mouse) is detected on an already locked screen."""
+        """Called when user activity (Windows key/Enter/Space/mouse) is detected on an already locked screen."""
         self.settings = BlinkSettings.load()
         if not self.settings.is_face_unlock_enabled:
             return
@@ -318,11 +318,21 @@ class FaceUnlockCoordinator:
             return
         if self.camera.is_running:
             return
-        if not IS_WINDOWS and ("on_space" not in self.settings.unlock_triggers and "on_activity" not in self.settings.unlock_triggers):
-            print("[Coordinator] Lockscreen activity detected, but space/activity trigger is disabled. Ignoring.")
+        if not IS_WINDOWS and (
+            "on_windows_key" not in self.settings.unlock_triggers
+            and "on_space" not in self.settings.unlock_triggers
+            and "on_activity" not in self.settings.unlock_triggers
+        ):
+            print("[Coordinator] Lockscreen activity detected, but Windows key/space trigger is disabled. Ignoring.")
             return
 
-        print("[Coordinator] Detected user activity/Enter on locked screen. Initiating scan cycle...")
+        print("[Coordinator] Detected Windows key / user activity on locked screen. Initiating scan cycle...")
+        # Reset armed and retry state so pressing Windows key will ALWAYS wake up and scan,
+        # even if previous scan cycles already timed out or failed.
+        self.has_armed_for_current_lock = False
+        self.has_auto_retried_for_current_lock = False
+        self.cancel_scan()
+
         if IS_WINDOWS:
             # Allow 150ms for Windows lockscreen curtain transition to expose password field
             time.sleep(0.15)
@@ -466,6 +476,7 @@ class FaceUnlockCoordinator:
         low_light_frame_count = 0
 
         scan_outcome = "no_resolution"
+        consecutive_unlocked_checks = 0
 
         while time.time() < deadline:
             with self._lock:
@@ -474,8 +485,12 @@ class FaceUnlockCoordinator:
                     return
 
             if not force and not LockMonitor.is_screen_actually_locked():
-                scan_outcome = "cancelled"
-                break
+                consecutive_unlocked_checks += 1
+                if consecutive_unlocked_checks >= 3:
+                    scan_outcome = "cancelled"
+                    break
+            else:
+                consecutive_unlocked_checks = 0
 
             latest = self.camera.get_latest_frame()
             if latest is None or latest[0] == last_processed_frame_id:

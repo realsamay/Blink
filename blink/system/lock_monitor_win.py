@@ -251,6 +251,7 @@ class WindowsLockMonitor:
         last_lock_state = self.is_screen_locked
         enter_was_down = False
         space_was_down = False
+        win_was_down = False
 
         while self._running:
             time.sleep(0.04)  # 40ms polling for responsive key detection
@@ -261,6 +262,7 @@ class WindowsLockMonitor:
                     self.is_screen_locked = locked
                     enter_was_down = False
                     space_was_down = False
+                    win_was_down = False
                     if locked:
                         print("[WindowsLockMonitor] Poller detected screen locked.")
                         if self.on_locked:
@@ -272,19 +274,21 @@ class WindowsLockMonitor:
 
                 # User interaction detection at lockscreen
                 if self.is_screen_locked and self.on_activity:
-                    # 1. Direct Enter / Space key detection via GetAsyncKeyState
+                    # 1. Direct Windows Key (VK_LWIN/VK_RWIN), Enter, and Space detection via GetAsyncKeyState
                     if hasattr(ctypes, "windll") and hasattr(ctypes.windll, "user32"):
                         u32 = ctypes.windll.user32
                         enter_is_down = bool(u32.GetAsyncKeyState(0x0D) & 0x8000)
                         space_is_down = bool(u32.GetAsyncKeyState(0x20) & 0x8000)
+                        win_is_down = bool(u32.GetAsyncKeyState(0x5B) & 0x8000) or bool(u32.GetAsyncKeyState(0x5C) & 0x8000)
 
-                        if (enter_is_down and not enter_was_down) or (space_is_down and not space_was_down):
-                            key_name = "Enter" if enter_is_down else "Space"
+                        if (enter_is_down and not enter_was_down) or (space_is_down and not space_was_down) or (win_is_down and not win_was_down):
+                            key_name = "Windows key" if win_is_down else ("Enter" if enter_is_down else "Space")
                             print(f"[WindowsLockMonitor] User pressed {key_name} on lockscreen! Activating Face ID scan...")
                             self.on_activity()
 
                         enter_was_down = enter_is_down
                         space_was_down = space_is_down
+                        win_was_down = win_is_down
 
                     # 2. General mouse/keyboard idle reset fallback
                     idle_ms = get_system_idle_ms()

@@ -14,16 +14,16 @@
   <img src="https://img.shields.io/badge/Privacy-100%25%20On--Device-30D158?style=flat" alt="100% On-Device" />
   <img src="https://img.shields.io/badge/Latency-%3C%2025ms-FF9F0A?style=flat" alt="Latency" />
   <img src="https://img.shields.io/badge/Tests-34%20Passing-30D158?style=flat" alt="Tests" />
-  <img src="https://img.shields.io/badge/Release-v2.2.0-blue?style=flat" alt="Release v2.2.0" />
+  <img src="https://img.shields.io/badge/Release-v2.2.1-blue?style=flat" alt="Release v2.2.1" />
   <img src="https://img.shields.io/badge/License-AGPLv3-0568FD?style=flat" alt="License" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/realsamay/Blink/releases/download/v2.2.0/blink_2.2.0_amd64.deb">
+  <a href="https://github.com/realsamay/Blink/releases/download/v2.2.1/blink_2.2.1_amd64.deb">
     <img src="https://img.shields.io/badge/Download%20.deb-Linux%20x64-E95420?style=for-the-badge&logo=ubuntu&logoColor=white" alt="Download .deb for Linux" />
   </a>
   &nbsp;
-  <a href="https://github.com/realsamay/Blink/releases/download/v2.2.0/Blink-Setup-x64.exe">
+  <a href="https://github.com/realsamay/Blink/releases/download/v2.2.1/Blink-Setup-x64.exe">
     <img src="https://img.shields.io/badge/Download%20.exe-Windows%2010%2F11-0078D6?style=for-the-badge&logo=windows&logoColor=white" alt="Download .exe for Windows" />
   </a>
 </p>
@@ -92,10 +92,10 @@ No external cloud servers. No telemetry. Your facial biometric vectors and unloc
 #### Option A: 1-Click Debian Package (.deb) — Recommended
 Download the latest pre-compiled binary package:
 ```bash
-wget https://github.com/realsamay/Blink/releases/download/v2.2.0/blink_2.2.0_amd64.deb
-sudo apt install ./blink_2.2.0_amd64.deb
+wget https://github.com/realsamay/Blink/releases/download/v2.2.1/blink_2.2.1_amd64.deb
+sudo apt install ./blink_2.2.1_amd64.deb
 ```
-*(Or double-click `blink_2.2.0_amd64.deb` in your file manager to install via your distro's Software Center).*
+*(Or double-click `blink_2.2.1_amd64.deb` in your file manager to install via your distro's Software Center).*
 
 #### Option B: Build from Source
 ```bash

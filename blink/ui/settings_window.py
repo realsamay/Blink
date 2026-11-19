@@ -1236,9 +1236,9 @@ class SettingsWindow(Gtk.Window):
         self._add_inset_row(group_use, "Unlock on screen lock", "Scans face immediately upon locking", sw_lock)
 
         sw_space = Gtk.Switch()
-        sw_space.set_active("on_space" in self.settings.unlock_triggers)
-        sw_space.connect("notify::active", lambda w, p: self._on_trigger_switch("on_space", w.get_active()))
-        self._add_inset_row(group_use, "Unlock with spacebar / keypress", "Press spacebar or any key at lock screen to begin recognition", sw_space)
+        sw_space.set_active("on_windows_key" in self.settings.unlock_triggers or "on_space" in self.settings.unlock_triggers)
+        sw_space.connect("notify::active", lambda w, p: self._on_trigger_switch("on_windows_key", w.get_active()))
+        self._add_inset_row(group_use, "Unlock with Windows key", "Press the Windows (Super) key at lock screen to wake up Face ID and scan", sw_space)
 
         sw_retry = Gtk.Switch()
         sw_retry.set_active(self.settings.auto_retry_once)
@@ -2277,15 +2277,28 @@ class SettingsWindow(Gtk.Window):
         self.settings.save()
         self._sync_daemon_service()
 
+    _sync_timer: Optional[threading.Timer] = None
+
     def _sync_daemon_service(self) -> None:
-        def _bg():
+        """Debounced background synchronization so rapid slider adjustments never flood systemd."""
+        if self._sync_timer is not None:
+            try:
+                self._sync_timer.cancel()
+            except Exception:
+                pass
+
+        def _do_restart():
             try:
                 proc = subprocess.run(["systemctl", "--user", "is-active", "blink.service"], capture_output=True, text=True)
-                if proc.stdout.strip() == "active":
+                if proc.stdout.strip() in ("active", "failed"):
+                    subprocess.run(["systemctl", "--user", "reset-failed", "blink.service"], capture_output=True)
                     subprocess.run(["systemctl", "--user", "restart", "blink.service"], capture_output=True)
             except Exception:
                 pass
-        threading.Thread(target=_bg, daemon=True, name="BlinkSyncService").start()
+
+        self._sync_timer = threading.Timer(0.8, _do_restart)
+        self._sync_timer.daemon = True
+        self._sync_timer.start()
 
     def _on_toggle_face_unlock(self, switch, gparam):
         has_faces = bool(SecureFaceStore.load_identities())
@@ -2317,10 +2330,18 @@ class SettingsWindow(Gtk.Window):
 
     def _on_trigger_switch(self, trigger_id: str, is_active: bool) -> None:
         triggers = set(self.settings.unlock_triggers)
-        if is_active:
-            triggers.add(trigger_id)
+        if trigger_id == "on_windows_key":
+            if is_active:
+                triggers.add("on_windows_key")
+                triggers.add("on_space")
+            else:
+                triggers.discard("on_windows_key")
+                triggers.discard("on_space")
         else:
-            triggers.discard(trigger_id)
+            if is_active:
+                triggers.add(trigger_id)
+            else:
+                triggers.discard(trigger_id)
         self._update_setting("unlock_triggers", list(triggers))
 
     def _on_timeout_slider(self, scale: Gtk.Scale, label: Gtk.Label) -> None:

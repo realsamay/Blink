@@ -186,16 +186,13 @@ class LinuxNotchOverlayWindow(Gtk.Window):
 
         self._anim_running = False
         self._is_desktop_preview = False
+        self._is_active = False
 
     def _is_allowed_to_show(self) -> bool:
-        """Enforces strict lockscreen-only display policy: Never appears on desktop."""
+        """Enforces lockscreen display policy without D-Bus spam in 60fps animation frames."""
         if getattr(self, "_is_desktop_preview", False):
             return True
-        try:
-            from blink.system.lock_monitor import LockMonitor
-            return LockMonitor.is_screen_actually_locked()
-        except Exception:
-            return False
+        return getattr(self, "_is_active", False)
 
     def _start_anim_loop(self) -> None:
         """Starts 60 FPS animation timer on-demand only when overlay is active."""
@@ -242,6 +239,7 @@ class LinuxNotchOverlayWindow(Gtk.Window):
             pass
 
     def clean_close(self) -> None:
+        self._is_active = False
         self._is_dead = True
         self._stop_anim_loop()
         try:
@@ -327,18 +325,18 @@ class LinuxNotchOverlayWindow(Gtk.Window):
                 print(f"[NotchOverlay] Reparenting card (148x148) into screensaver {hex(ss_xid)}")
                 x11.XReparentWindow(_X11_DISP, xid, ss_xid, int(x), int(y))
                 self._current_parent_xid = ss_xid
-                if show:
-                    x11.XMapWindow(_X11_DISP, xid)
-                    x11.XRaiseWindow(_X11_DISP, xid)
-                    x11.XFlush(_X11_DISP)
-                    self.show_all()
-                    self.apply_shape_mask()
-                    self.reposition()
+                x11.XMapWindow(_X11_DISP, xid)
+                x11.XRaiseWindow(_X11_DISP, xid)
+                x11.XFlush(_X11_DISP)
+                self.show_all()
+                self.apply_shape_mask()
+                self.reposition()
             except Exception as e:
                 print(f"[NotchOverlay] Error reparenting to screensaver: {e}")
 
     def detach_from_screensaver(self) -> None:
         """Safely unmaps and hides overlay upon screen unlock."""
+        self._is_active = False
         self._stop_anim_loop()
         self.hide()
         if x11 and _X11_DISP:
@@ -365,9 +363,7 @@ class LinuxNotchOverlayWindow(Gtk.Window):
 
     def begin_scanning(self) -> None:
         """Smoothly reveals overlay and springs out from behind camera bezel."""
-        if not self._is_allowed_to_show():
-            self.hide()
-            return
+        self._is_active = True
         # If already actively scanning and visible, don't jerk the spring position back
         if self.phase == OverlayPhase.SCANNING and self.is_visible() and getattr(self, "_anim_running", False):
             return

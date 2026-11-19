@@ -26,7 +26,7 @@ class BlinkSettings:
     face_detection_seconds: int = 5
     liveness_checks_enabled: bool = True
     liveness_mode: str = "light"  # "light" | "heavy"
-    unlock_triggers: List[str] = field(default_factory=lambda: ["on_wake", "on_lock", "on_space", "on_activity"])
+    unlock_triggers: List[str] = field(default_factory=lambda: ["on_wake", "on_lock", "on_windows_key", "on_space", "on_activity"])
     auto_retry_once: bool = True
     show_unlock_animation: bool = True
     camera_index: int = 0

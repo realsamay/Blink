@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build/deb"
 DIST_DIR="${PROJECT_ROOT}/dist"
-VERSION="2.2.0"
+VERSION="2.2.1"
 PKG_NAME="blink_${VERSION}_amd64"
 STAGE_DIR="${BUILD_DIR}/${PKG_NAME}"
 
@@ -87,12 +87,13 @@ cat << 'EOF' > "${STAGE_DIR}/usr/lib/systemd/user/blink.service"
 [Unit]
 Description=Blink Face Unlock Daemon
 After=graphical-session.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 ExecStart=/usr/bin/blink daemon
 Restart=always
-RestartSec=3
+RestartSec=2
 
 [Install]
 WantedBy=graphical-session.target
@@ -250,7 +251,7 @@ if which gtk-update-icon-cache >/dev/null 2>&1; then
 fi
 
 echo "=========================================================="
-echo " Blink Face ID v2.2.0 installed successfully!"
+echo " Blink Face ID v2.2.1 installed successfully!"
 echo " 1. Run 'blink settings' to enroll your face & password."
 echo " 2. Run 'systemctl --user enable --now blink.service'"
 echo "=========================================================="

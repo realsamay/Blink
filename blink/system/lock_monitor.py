@@ -59,6 +59,9 @@ else:
 
 
 class LinuxLockMonitor:
+    _lock = threading.Lock()
+    _cached_bus = None
+
     def __init__(
         self,
         on_locked: Optional[Callable[[], None]] = None,
@@ -102,43 +105,28 @@ class LinuxLockMonitor:
         if self._poll_thread and self._poll_thread.is_alive():
             self._poll_thread.join(timeout=0.5)
 
-    _cached_bus = None
-    _cached_ss_obj = None
-
-    @classmethod
-    def _get_dbus_screensaver(cls):
-        if cls._cached_ss_obj is not None:
-            return cls._cached_ss_obj
-        try:
-            if cls._cached_bus is None:
-                cls._cached_bus = pydbus.SessionBus()
-            for service, path in [
-                ("org.cinnamon.ScreenSaver", "/org/cinnamon/ScreenSaver"),
-                ("org.gnome.ScreenSaver", "/org/gnome/ScreenSaver"),
-                ("org.freedesktop.ScreenSaver", "/org/freedesktop/ScreenSaver"),
-                ("org.mate.ScreenSaver", "/org/mate/ScreenSaver"),
-            ]:
-                try:
-                    obj = cls._cached_bus.get(service, path)
-                    if hasattr(obj, "GetActive"):
-                        cls._cached_ss_obj = obj
-                        return obj
-                except Exception:
-                    continue
-        except Exception:
-            cls._cached_bus = None
-        return None
-
     @classmethod
     def is_screen_actually_locked(cls) -> bool:
         """Authoritatively checks screen lock state across supported environments."""
-        # 1. Fast, ultra-low-overhead in-process D-Bus query (<1ms, 0 processes spawned)
-        try:
-            obj = cls._get_dbus_screensaver()
-            if obj is not None and hasattr(obj, "GetActive"):
-                return bool(obj.GetActive())
-        except Exception:
-            cls._cached_ss_obj = None
+        # 1. Fast, thread-safe D-Bus query (<1ms)
+        with cls._lock:
+            try:
+                if cls._cached_bus is None:
+                    cls._cached_bus = pydbus.SessionBus()
+                for service, path in [
+                    ("org.cinnamon.ScreenSaver", "/org/cinnamon/ScreenSaver"),
+                    ("org.gnome.ScreenSaver", "/org/gnome/ScreenSaver"),
+                    ("org.freedesktop.ScreenSaver", "/org/freedesktop/ScreenSaver"),
+                    ("org.mate.ScreenSaver", "/org/mate/ScreenSaver"),
+                ]:
+                    try:
+                        obj = cls._cached_bus.get(service, path)
+                        if hasattr(obj, "GetActive"):
+                            return bool(obj.GetActive())
+                    except Exception:
+                        continue
+            except Exception:
+                cls._cached_bus = None
 
         # 2. Check via loginctl query
         try:
@@ -173,24 +161,41 @@ class LinuxLockMonitor:
         return False
 
     def _poll_loop(self) -> None:
-        """Background watchdog loop tracking screen lock state and user return activity."""
+        """Background watchdog tracking screen lock state and Windows/Super key wakeups."""
         was_idle_while_locked = False
+        win_key_was_down = False
 
         while self._running:
-            time.sleep(0.35)
+            time.sleep(0.06 if self.is_screen_locked else 0.35)
             try:
                 locked = self.is_screen_actually_locked()
                 if locked != self.is_screen_locked:
                     self._on_screensaver_active_changed(locked)
                     was_idle_while_locked = False
+                    win_key_was_down = False
 
                 if self.is_screen_locked:
+                    # 1. Windows (Super) key instant wake-up via XQueryKeymap (<0.01ms)
+                    if _x11 and _x11_dpy:
+                        keymap = (ctypes.c_char * 32)()
+                        _x11.XQueryKeymap(_x11_dpy, keymap)
+                        # Keycodes for Super_L (133) and Super_R (134)
+                        super_l = bool(keymap.raw[133 // 8] & (1 << (133 % 8)))
+                        super_r = bool(keymap.raw[134 // 8] & (1 << (134 % 8)))
+                        win_pressed = super_l or super_r
+                        if win_pressed and not win_key_was_down:
+                            win_key_was_down = True
+                            print("[LockMonitor] Windows / Super key pressed on lockscreen! Waking Face ID...")
+                            if self.on_activity:
+                                self.on_activity()
+                        elif not win_pressed:
+                            win_key_was_down = False
+
+                    # 2. General mouse/keyboard idle reset
                     idle_ms = get_system_idle_ms()
-                    # Flag idle after 2.5s of inactivity on lockscreen
                     if idle_ms > 2500:
                         was_idle_while_locked = True
-                    # When user returns and touches mouse/keyboard after being idle on lockscreen:
-                    elif was_idle_while_locked and idle_ms < 800:
+                    elif was_idle_while_locked and idle_ms < 600:
                         was_idle_while_locked = False
                         print("[LockMonitor] User activity detected on lockscreen (mouse/keyboard wake).")
                         if self.on_activity:
@@ -215,9 +220,17 @@ class LinuxLockMonitor:
         if session_bus is not None:
             def handle_active_changed(*args):
                 try:
-                    # Authoritatively confirm lock state to prevent spurious triggers from other apps
-                    confirmed = self.is_screen_actually_locked()
-                    self._on_screensaver_active_changed(confirmed)
+                    active = None
+                    if len(args) > 4 and isinstance(args[4], (list, tuple)) and len(args[4]) > 0:
+                        active = bool(args[4][0])
+                    elif len(args) > 0 and isinstance(args[0], bool):
+                        active = args[0]
+
+                    if active is not None:
+                        self._on_screensaver_active_changed(active)
+                    else:
+                        confirmed = self.is_screen_actually_locked()
+                        self._on_screensaver_active_changed(confirmed)
                 except Exception:
                     pass
 

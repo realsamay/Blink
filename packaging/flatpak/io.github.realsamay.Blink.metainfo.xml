@@ -44,6 +44,11 @@
     <keyword>lockscreen</keyword>
   </keywords>
   <releases>
+    <release version="2.2.1" date="2026-11-19">
+      <description>
+        <p>Optimized enrollment performance with 480p downscaled face detection, added lockscreen Windows (Super) key wakeup trigger, and fixed lockscreen daemon stability.</p>
+      </description>
+    </release>
     <release version="2.2.0" date="2026-11-19">
       <description>
         <p>Resolved multi-face unlock and single-face sluggishness; added native in-app self-updater and GitHub release synchronizer.</p>

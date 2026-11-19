@@ -35,8 +35,6 @@ POSES = [
     ("center", "Look straight at the camera", "Keep your face level in the circle"),
     ("left", "Turn your head slightly LEFT", "A gentle turn towards your left"),
     ("right", "Turn your head slightly RIGHT", "A gentle turn towards your right"),
-    ("up", "Tilt your head slightly UP", "Tilt your chin up gently"),
-    ("down", "Tilt your head slightly DOWN", "Tilt your chin down gently"),
 ]
 
 
@@ -74,10 +72,11 @@ class EnrollmentDialog(Gtk.Dialog):
         self.baseline_pitch_ratio: Optional[float] = None
         self.pose_started_at: Optional[float] = None
 
-        # Hold timer: requires 400ms of stable pose alignment
+        # Hold timer: requires 150ms of stable pose alignment
         self.hold_start_time: Optional[float] = None
-        self.required_hold_duration = 0.40
+        self.required_hold_duration = 0.15
         self.hold_progress = 0.0
+        self._last_frame_id = -1
 
         # Adaptive smooth centering & zoom
         self.smooth_cx: Optional[float] = None
@@ -223,12 +222,31 @@ class EnrollmentDialog(Gtk.Dialog):
         if latest is None:
             return True
 
-        _, frame = latest
+        frame_id, frame = latest
+        if frame_id == self._last_frame_id:
+            self.draw_area.queue_draw()
+            return True
+        self._last_frame_id = frame_id
+
         frame = cv2.flip(frame, 1)  # Selfie mirror flip
         self.latest_frame = frame
         h, w = frame.shape[:2]
 
-        faces = self.detector.detect_faces(frame, compute_106_landmarks=False)
+        # Fast downscaled face detection (3ms vs 40ms) for high-FPS camera viewfinder
+        max_dim = 480
+        if max(h, w) > max_dim:
+            scale = max_dim / float(max(h, w))
+            det_w, det_h = int(w * scale), int(h * scale)
+            det_frame = cv2.resize(frame, (det_w, det_h), interpolation=cv2.INTER_LINEAR)
+            faces = self.detector.detect_faces(det_frame, compute_106_landmarks=False)
+            inv_scale = 1.0 / scale
+            for f in faces:
+                bx, by, bw, bh = f.bbox
+                f.bbox = (int(bx * inv_scale), int(by * inv_scale), int(bw * inv_scale), int(bh * inv_scale))
+                f.landmarks_5pt = [(int(lx * inv_scale), int(ly * inv_scale)) for lx, ly in f.landmarks_5pt]
+        else:
+            faces = self.detector.detect_faces(frame, compute_106_landmarks=False)
+
         dominant = FaceDetector.select_dominant_face(faces, frame_width=w, min_width_fraction=0.03)
         self.latest_face = dominant
 
@@ -321,20 +339,19 @@ class EnrollmentDialog(Gtk.Dialog):
             self.pose_started_at = time.time()
         time_on_pose = time.time() - self.pose_started_at
 
-        # Graceful tolerance adjustment only after 4.0 seconds of struggling
-        widen = 1.0 + max(0.0, time_on_pose - 4.0) * 0.10
-        widen = min(widen, 1.35)
+        # Instant generous tolerance so enrollment snaps naturally in seconds
+        widen = 1.0 + min(0.40, time_on_pose * 0.25)
 
         if pose == "center":
-            return abs(yaw) < (0.10 * widen) and abs(pitch) < (0.07 * widen)
+            return abs(yaw) < (0.13 * widen) and abs(pitch) < (0.11 * widen)
         elif pose == "left":
-            return yaw < (-0.09 / widen)
+            return yaw < (-0.065 / widen)
         elif pose == "right":
-            return yaw > (0.09 / widen)
+            return yaw > (0.065 / widen)
         elif pose == "up":
-            return pitch < (-0.035 / widen)
+            return pitch < (-0.030 / widen)
         elif pose == "down":
-            return pitch > (0.040 / widen)
+            return pitch > (0.030 / widen)
         return False
 
     def _pose_hint(self, pose: str, yaw: float, pitch: float) -> str:
@@ -376,13 +393,13 @@ class EnrollmentDialog(Gtk.Dialog):
         # Update button state
         self.btn_save.set_sensitive(True)
         if self.current_pose_idx < len(POSES):
-            self.btn_save.set_label(f"Save Profile ({len(self.completed_poses)}/5 Poses)")
+            self.btn_save.set_label(f"Save Profile ({len(self.completed_poses)}/{len(POSES)} Poses)")
             self._update_instruction_text()
         else:
             self._on_poses_completed()
 
     def _on_poses_completed(self) -> None:
-        """Called when all 5 poses are collected: auto-saves identity, freezes circular view, and shows Done."""
+        """Called when all poses are collected: auto-saves identity, freezes circular view, and shows Done."""
         self.is_completed = True
         self._update_instruction_text()
 
@@ -433,7 +450,7 @@ class EnrollmentDialog(Gtk.Dialog):
         print(f"[Enrollment] Auto-saved '{name}' with {len(self.captured_samples)} poses successfully.")
 
         # Transition UI to completion state
-        self.lbl_status.set_text("● All 5 poses enrolled and securely saved")
+        self.lbl_status.set_text(f"● All {len(self.captured_samples)} poses enrolled and securely saved")
         self.btn_save.set_sensitive(True)
         self.btn_save.set_label("Done")
         self.btn_save.get_style_context().add_class("btn-macos-primary")
