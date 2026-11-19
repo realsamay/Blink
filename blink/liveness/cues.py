@@ -46,16 +46,16 @@ class CueReading:
 
 @dataclass
 class LivenessTuning:
-    gloss_level: float = 0.04
-    gloss_frames: int = 3
-    device_level: float = 0.15
-    device_frames: int = 3
+    gloss_level: float = 0.12
+    gloss_frames: int = 4
+    device_level: float = 0.35
+    device_frames: int = 4
     flat_vs_3d_level: float = 0.25
     flat_vs_3d_frames: int = 2
     depth_pose_level: float = 0.8
     depth_pose_frames: int = 2
     blink_frames: int = 1
-    light_mode_min_frames: int = 3
+    light_mode_min_frames: int = 2
 
     def level_for(self, cue: LivenessCue) -> float:
         return {

@@ -158,7 +158,24 @@ class FaceUnlockCoordinator:
                     continue
 
                 _, frame = res
-                faces = self.detector.detect_faces(frame)
+                need_106 = (self.settings.liveness_checks_enabled and self.settings.liveness_mode == "heavy")
+                frame_h, frame_w = frame.shape[:2]
+                max_dim = 480
+                if max(frame_h, frame_w) > max_dim:
+                    scale = max_dim / float(max(frame_h, frame_w))
+                    det_w, det_h = int(frame_w * scale), int(frame_h * scale)
+                    det_frame = cv2.resize(frame, (det_w, det_h), interpolation=cv2.INTER_LINEAR)
+                    faces = self.detector.detect_faces(det_frame, compute_106_landmarks=need_106)
+                    inv_scale = 1.0 / scale
+                    for f in faces:
+                        bx, by, bw, bh = f.bbox
+                        f.bbox = (int(bx * inv_scale), int(by * inv_scale), int(bw * inv_scale), int(bh * inv_scale))
+                        f.landmarks_5pt = np.asarray(f.landmarks_5pt, dtype=np.float32) * inv_scale
+                        if f.landmarks_106pt is not None:
+                            f.landmarks_106pt = f.landmarks_106pt * inv_scale
+                else:
+                    faces = self.detector.detect_faces(frame, compute_106_landmarks=need_106)
+
                 if faces:
                     dominant = FaceDetector.select_dominant_face(faces, frame_width=frame.shape[1])
                     if dominant is not None:
@@ -171,9 +188,9 @@ class FaceUnlockCoordinator:
                                 if decision.kind == LivenessDecisionKind.CONFIRMED:
                                     liveness_confirmed = True
                                 elif decision.kind == LivenessDecisionKind.DENIED:
-                                    break
+                                    liveness_confirmed = False
 
-                            emb = self.embedder.compute_embedding(aligned, flip_augment=True)
+                            emb = self.embedder.compute_embedding(aligned, flip_augment=False)
                             scored = self.embedder.score_identities(emb, active_identities)
                             matched = self.embedder.best_match(scored, self.settings.match_threshold)
                             if matched and liveness_confirmed:
@@ -474,6 +491,7 @@ class FaceUnlockCoordinator:
         wrong_face_grace_seconds = 3.0
         liveness_confirmed = not self.settings.liveness_checks_enabled
         low_light_frame_count = 0
+        spoof_first_seen = None
 
         scan_outcome = "no_resolution"
         consecutive_unlocked_checks = 0
@@ -512,9 +530,25 @@ class FaceUnlockCoordinator:
             else:
                 low_light_frame_count = 0
 
-            # 2. Face Detection
+            # 2. Fast Face Detection (downscaled 480p max for ~3ms inference)
             frame_h, frame_w = frame_bgr.shape[:2]
-            faces = self.detector.detect_faces(frame_bgr, compute_106_landmarks=True)
+            max_dim = 480
+            need_106 = (self.settings.liveness_checks_enabled and self.settings.liveness_mode == "heavy")
+            if max(frame_h, frame_w) > max_dim:
+                scale = max_dim / float(max(frame_h, frame_w))
+                det_w, det_h = int(frame_w * scale), int(frame_h * scale)
+                det_frame = cv2.resize(frame_bgr, (det_w, det_h), interpolation=cv2.INTER_LINEAR)
+                faces = self.detector.detect_faces(det_frame, compute_106_landmarks=need_106)
+                inv_scale = 1.0 / scale
+                for f in faces:
+                    bx, by, bw, bh = f.bbox
+                    f.bbox = (int(bx * inv_scale), int(by * inv_scale), int(bw * inv_scale), int(bh * inv_scale))
+                    f.landmarks_5pt = np.asarray(f.landmarks_5pt, dtype=np.float32) * inv_scale
+                    if f.landmarks_106pt is not None:
+                        f.landmarks_106pt = f.landmarks_106pt * inv_scale
+            else:
+                faces = self.detector.detect_faces(frame_bgr, compute_106_landmarks=need_106)
+
             dominant = FaceDetector.select_dominant_face(
                 faces,
                 frame_width=frame_w,
@@ -557,14 +591,21 @@ class FaceUnlockCoordinator:
             if self.settings.liveness_checks_enabled:
                 decision = liveness.observe(frame_bgr, dominant, face_crop)
                 if decision.kind == LivenessDecisionKind.DENIED:
-                    print(f"[Coordinator] Liveness DENIED: {decision.reason}")
-                    scan_outcome = "spoof_suspected"
-                    break
+                    # Do not abort immediately on a single transient glitch;
+                    # require sustained spoofing for > 1.5 seconds
+                    if spoof_first_seen is None:
+                        spoof_first_seen = time.time()
+                    elif (time.time() - spoof_first_seen) >= 1.5:
+                        print(f"[Coordinator] Sustained liveness DENIED: {decision.reason}")
+                        scan_outcome = "spoof_suspected"
+                        break
+                    liveness_confirmed = False
                 elif decision.kind == LivenessDecisionKind.CONFIRMED:
+                    spoof_first_seen = None
                     liveness_confirmed = True
 
             # Recognition match scoring
-            emb = self.embedder.compute_embedding(aligned_face)
+            emb = self.embedder.compute_embedding(aligned_face, flip_augment=False)
             scored = self.embedder.score_identities(emb, active_identities)
             matched = self.embedder.best_match(scored, self.settings.match_threshold)
 

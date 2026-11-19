@@ -243,7 +243,7 @@ class EnrollmentDialog(Gtk.Dialog):
             for f in faces:
                 bx, by, bw, bh = f.bbox
                 f.bbox = (int(bx * inv_scale), int(by * inv_scale), int(bw * inv_scale), int(bh * inv_scale))
-                f.landmarks_5pt = [(int(lx * inv_scale), int(ly * inv_scale)) for lx, ly in f.landmarks_5pt]
+                f.landmarks_5pt = np.asarray(f.landmarks_5pt, dtype=np.float32) * inv_scale
         else:
             faces = self.detector.detect_faces(frame, compute_106_landmarks=False)
 

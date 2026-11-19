@@ -126,22 +126,22 @@ class ArcFaceEmbedder:
         if not scored:
             return None
 
-        # Biometric safety floor: ArcFace MobileFaceNet produces ~0.35-0.48 for random strangers.
+        # Biometric safety floor: ArcFace MobileFaceNet produces ~0.20-0.45 for random strangers.
         effective_thresh = max(float(threshold), 0.55)
 
         for identity, centroid_sim, max_sim in scored:
             composite = 0.65 * max_sim + 0.35 * centroid_sim
 
-            # 1. High-confidence pose match (unmistakable user match with enrolled angle)
-            if max_sim >= 0.72 and centroid_sim >= 0.38:
+            # 1. Direct high-confidence pose match (user looking directly at camera)
+            if max_sim >= 0.65 and centroid_sim >= 0.35:
                 return (identity, centroid_sim, max_sim)
 
-            # 2. Balanced threshold match (both max sample and composite pass user threshold)
-            if max_sim >= effective_thresh and composite >= (effective_thresh - 0.04) and centroid_sim >= 0.40:
+            # 2. Balanced threshold match
+            if max_sim >= effective_thresh and composite >= (effective_thresh - 0.05) and centroid_sim >= 0.35:
                 return (identity, centroid_sim, max_sim)
 
             # 3. High composite consensus match
-            if composite >= effective_thresh and max_sim >= 0.60 and centroid_sim >= 0.40:
+            if composite >= effective_thresh and max_sim >= 0.58 and centroid_sim >= 0.35:
                 return (identity, centroid_sim, max_sim)
 
         return None

@@ -44,6 +44,11 @@
     <keyword>lockscreen</keyword>
   </keywords>
   <releases>
+    <release version="2.2.3" date="2026-11-20">
+      <description>
+        <p>Fixed enrollment preview camera freeze on landmark alignment, optimized lockscreen face detection to 480p, tuned biometric threshold matching, and reduced liveness false positives.</p>
+      </description>
+    </release>
     <release version="2.2.2" date="2026-11-20">
       <description>
         <p>Fixed in-app self-updater UI with Gtk.Revealer, added clear modal feedback, resolved pkexec updater imports, and restored Windows independence for multi-agent collaboration.</p>

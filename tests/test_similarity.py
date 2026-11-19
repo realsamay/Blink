@@ -160,6 +160,32 @@ class TestBiometricMatching(unittest.TestCase):
         self.assertIsNotNone(matched, "Genuine face must unlock smoothly")
         self.assertEqual(matched[0]["name"], "Developer")
 
+    def test_face_aligner_accepts_list_and_array(self):
+        """Verify FaceAligner handles landmarks whether passed as numpy array or Python list of tuples."""
+        from blink.vision.detector import DetectedFace
+        from blink.vision.aligner import FaceAligner
+
+        dummy_img = np.zeros((300, 300, 3), dtype=np.uint8)
+        # 1. As Python list
+        face_list = DetectedFace(
+            bbox=(20, 20, 100, 100),
+            score=0.98,
+            landmarks_5pt=[(30, 40), (70, 40), (50, 60), (35, 80), (65, 80)]
+        )
+        res_list = FaceAligner.align(face_list, dummy_img)
+        self.assertIsNotNone(res_list)
+        self.assertEqual(res_list.shape, (112, 112, 3))
+
+        # 2. As numpy array
+        face_arr = DetectedFace(
+            bbox=(20, 20, 100, 100),
+            score=0.98,
+            landmarks_5pt=np.array([(30, 40), (70, 40), (50, 60), (35, 80), (65, 80)], dtype=np.float32)
+        )
+        res_arr = FaceAligner.align(face_arr, dummy_img)
+        self.assertIsNotNone(res_arr)
+        self.assertEqual(res_arr.shape, (112, 112, 3))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -26,7 +26,7 @@ class FaceAligner:
     @classmethod
     def align(cls, face: DetectedFace, image: np.ndarray) -> Optional[np.ndarray]:
         """Aligns face using 5-point similarity transformation."""
-        src_points = face.landmarks_5pt.astype(np.float32)
+        src_points = np.asarray(face.landmarks_5pt, dtype=np.float32)
         # Estimate 2D similarity transformation matrix (rotation, translation, uniform scale)
         M, inliers = cv2.estimateAffinePartial2D(src_points, cls.REFERENCE_POINTS)
         if M is None:
