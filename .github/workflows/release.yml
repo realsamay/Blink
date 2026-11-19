@@ -87,7 +87,7 @@ jobs:
         run: |
           Copy-Item "packaging/windows/Run-Blink.cmd" -Destination "dist/Blink/" -Force
           Copy-Item "packaging/windows/Install-Blink.cmd" -Destination "dist/Blink/" -Force
-          Compress-Archive -Path dist/Blink/* -DestinationPath dist/Blink-v2.1.0-Windows.zip -Force
+          Compress-Archive -Path dist/Blink/* -DestinationPath dist/Blink-v2.2.0-Windows.zip -Force
 
       - name: Build Inno Setup Installer (.exe)
         shell: cmd
@@ -112,7 +112,7 @@ jobs:
           name: blink-windows-artifacts
           path: |
             dist/Blink-Setup-x64.exe
-            dist/Blink-v2.1.0-Windows.zip
+            dist/Blink-v2.2.0-Windows.zip
 
   # -------------------------------------------------------------
   # Job 3: Publish to GitHub Releases
@@ -144,7 +144,7 @@ jobs:
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           else
-            echo "tag=v2.1.0" >> $GITHUB_OUTPUT
+            echo "tag=v2.2.0" >> $GITHUB_OUTPUT
           fi
 
       - name: Publish or Update GitHub Release
@@ -164,7 +164,7 @@ jobs:
             Seamless, Apple-style Face ID for Linux and Windows 10/11 desktops.
             
             #### 📦 Downloads:
-            - **🐧 Linux (Debian, Ubuntu, Mint)**: [`blink_2.1.0_amd64.deb`](https://github.com/realsamay/Blink/releases/download/${{ steps.tag_info.outputs.tag }}/blink_2.1.0_amd64.deb)
+            - **🐧 Linux (Debian, Ubuntu, Mint)**: [`blink_2.2.0_amd64.deb`](https://github.com/realsamay/Blink/releases/download/${{ steps.tag_info.outputs.tag }}/blink_2.2.0_amd64.deb)
             - **🪟 Windows (10/11 64-bit)**: [`Blink-Setup-x64.exe`](https://github.com/realsamay/Blink/releases/download/${{ steps.tag_info.outputs.tag }}/Blink-Setup-x64.exe)
             
             #### ✨ Highlights:

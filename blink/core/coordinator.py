@@ -461,7 +461,7 @@ class FaceUnlockCoordinator:
         prev_bbox = None
         has_seen_any_face = False
         wrong_face_started_at = None
-        wrong_face_grace_seconds = 1.8
+        wrong_face_grace_seconds = 3.0
         liveness_confirmed = not self.settings.liveness_checks_enabled
         low_light_frame_count = 0
 
@@ -510,9 +510,9 @@ class FaceUnlockCoordinator:
             if dominant is None:
                 wrong_face_started_at = None
                 prev_bbox = None
-                # Smart 2-second timeout: If no face has been seen within 2.0 seconds, go to sleep
-                if not has_seen_any_face and (time.time() - cycle_start_time) >= 2.0:
-                    print("[Coordinator] No face detected within 2.0s window. Going to sleep.")
+                # Smart 3.5-second timeout: If no face has been seen within 3.5 seconds, go to sleep
+                if not has_seen_any_face and (time.time() - cycle_start_time) >= 3.5:
+                    print("[Coordinator] No face detected within 3.5s window. Going to sleep.")
                     scan_outcome = "no_face_timeout"
                     break
                 time.sleep(0.02)

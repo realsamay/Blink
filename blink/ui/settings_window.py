@@ -29,6 +29,7 @@ import cairo
 
 from blink.core.config import BlinkSettings
 from blink.core.crypto import SecureCredentialManager, SecureFaceStore
+from blink.core import updater
 from blink.ui.enrollment_dialog import EnrollmentDialog
 from blink.vision.camera import CameraManager
 from blink.vision.detector import FaceDetector, DetectedFace
@@ -1132,7 +1133,7 @@ class SettingsWindow(Gtk.Window):
         group.get_style_context().add_class("inset-group")
         return group
 
-    def _add_inset_row(self, group: Gtk.Box, title: str, subtitle: Optional[str] = None, control: Optional[Gtk.Widget] = None, is_last: bool = False) -> None:
+    def _add_inset_row(self, group: Gtk.Box, title: str, subtitle: Optional[Any] = None, control: Optional[Gtk.Widget] = None, is_last: bool = False) -> None:
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
         row.get_style_context().add_class("inset-row")
 
@@ -1143,10 +1144,13 @@ class SettingsWindow(Gtk.Window):
         text_box.pack_start(lbl_t, False, False, 0)
 
         if subtitle:
-            lbl_sub = Gtk.Label(label=subtitle)
-            lbl_sub.set_xalign(0)
-            lbl_sub.get_style_context().add_class("row-desc")
-            text_box.pack_start(lbl_sub, False, False, 0)
+            if isinstance(subtitle, Gtk.Widget):
+                text_box.pack_start(subtitle, False, False, 0)
+            else:
+                lbl_sub = Gtk.Label(label=str(subtitle))
+                lbl_sub.set_xalign(0)
+                lbl_sub.get_style_context().add_class("row-desc")
+                text_box.pack_start(lbl_sub, False, False, 0)
 
         row.pack_start(text_box, True, True, 0)
 
@@ -2024,21 +2028,90 @@ class SettingsWindow(Gtk.Window):
         lbl_app.set_xalign(0)
         lbl_app.get_style_context().add_class("page-title")
 
-        lbl_ver = Gtk.Label(label="Version 2.1.0 • Apple Human Interface Edition")
-        lbl_ver.set_xalign(0)
-        lbl_ver.get_style_context().add_class("row-desc")
+        self.lbl_ver = Gtk.Label(label=f"Version {updater.CURRENT_VERSION} • Apple Human Interface Edition")
+        self.lbl_ver.set_xalign(0)
+        self.lbl_ver.get_style_context().add_class("row-desc")
 
         lbl_arch = Gtk.Label(label="Linux x86_64 • 100% On-Device Neural Vision")
         lbl_arch.set_xalign(0)
         lbl_arch.get_style_context().add_class("row-desc")
 
         v_top.pack_start(lbl_app, False, False, 0)
-        v_top.pack_start(lbl_ver, False, False, 0)
+        v_top.pack_start(self.lbl_ver, False, False, 0)
         v_top.pack_start(lbl_arch, False, False, 0)
         h_brand_row.pack_start(v_top, True, True, 0)
 
         top_hero.pack_start(h_brand_row, True, True, 0)
         page.pack_start(top_hero, False, False, 0)
+
+        # Software Update Group
+        page.pack_start(self._create_group_heading("Software Update"), False, False, 0)
+
+        group_update = self._create_inset_group()
+
+        h_ctrl = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        self.spn_update = Gtk.Spinner()
+        self.spn_update.set_no_show_all(True)
+        self.btn_check_update = Gtk.Button(label="Check for Updates")
+        self.btn_check_update.get_style_context().add_class("btn-macos")
+        self.btn_check_update.connect("clicked", self._on_check_for_updates)
+        h_ctrl.pack_start(self.spn_update, False, False, 0)
+        h_ctrl.pack_start(self.btn_check_update, False, False, 0)
+
+        self.lbl_update_sub = Gtk.Label(label=f"Current version: v{updater.CURRENT_VERSION} • Up to date")
+        self.lbl_update_sub.set_xalign(0)
+        self.lbl_update_sub.get_style_context().add_class("row-desc")
+
+        self._add_inset_row(group_update, "Blink Updates", self.lbl_update_sub, h_ctrl, is_last=False)
+
+        # Expandable Update Card Box
+        self.box_update_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.box_update_card.set_margin_start(16)
+        self.box_update_card.set_margin_end(16)
+        self.box_update_card.set_margin_top(12)
+        self.box_update_card.set_margin_bottom(14)
+        self.box_update_card.set_no_show_all(True)
+        self.box_update_card.set_visible(False)
+
+        self.lbl_update_title = Gtk.Label()
+        self.lbl_update_title.set_xalign(0)
+        self.lbl_update_title.get_style_context().add_class("row-label")
+        self.box_update_card.pack_start(self.lbl_update_title, False, False, 0)
+
+        # Scrolled changelog container
+        scroll_cl = Gtk.ScrolledWindow()
+        scroll_cl.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll_cl.set_min_content_height(100)
+        scroll_cl.set_max_content_height(180)
+
+        self.lbl_changelog = Gtk.Label()
+        self.lbl_changelog.set_xalign(0)
+        self.lbl_changelog.set_line_wrap(True)
+        self.lbl_changelog.get_style_context().add_class("row-desc")
+        scroll_cl.add(self.lbl_changelog)
+        self.box_update_card.pack_start(scroll_cl, False, False, 0)
+
+        # Action row
+        h_action = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        self.btn_install_update = Gtk.Button(label="Download & Install Update")
+        self.btn_install_update.get_style_context().add_class("btn-macos-primary")
+        self.btn_install_update.connect("clicked", self._on_install_update_clicked)
+        h_action.pack_start(self.btn_install_update, False, False, 0)
+
+        self.lbl_install_status = Gtk.Label(label="")
+        self.lbl_install_status.set_xalign(0)
+        self.lbl_install_status.get_style_context().add_class("row-desc")
+        h_action.pack_start(self.lbl_install_status, True, True, 0)
+        self.box_update_card.pack_start(h_action, False, False, 0)
+
+        self.prog_update = Gtk.ProgressBar()
+        self.prog_update.set_no_show_all(True)
+        self.prog_update.set_visible(False)
+        self.box_update_card.pack_start(self.prog_update, False, False, 0)
+
+        group_update.pack_start(self.box_update_card, False, False, 0)
+
+        page.pack_start(group_update, False, False, 0)
 
         page.pack_start(self._create_group_heading("Resources"), False, False, 0)
 
@@ -2077,6 +2150,124 @@ class SettingsWindow(Gtk.Window):
         page.pack_start(group_sys, False, False, 0)
 
         return scroll
+
+    def _on_check_for_updates(self, button: Gtk.Button) -> None:
+        self.btn_check_update.set_sensitive(False)
+        self.spn_update.set_visible(True)
+        self.spn_update.start()
+        self.lbl_update_sub.set_text("Checking GitHub for the latest release...")
+
+        def _bg():
+            res = updater.check_for_updates()
+            GLib.idle_add(self._on_check_updates_complete, res)
+
+        threading.Thread(target=_bg, daemon=True, name="BlinkUpdateCheck").start()
+
+    def _on_check_updates_complete(self, res: Dict[str, Any]) -> None:
+        self.spn_update.stop()
+        self.spn_update.set_visible(False)
+        self.btn_check_update.set_sensitive(True)
+
+        if res.get("status") == "error":
+            err_msg = res.get("error", "Network error")
+            self.lbl_update_sub.set_text(f"Check failed: {err_msg}")
+            return
+
+        if not res.get("has_update"):
+            self.lbl_update_sub.set_text(f"✓ Blink is up to date (v{updater.CURRENT_VERSION})")
+            self.box_update_card.set_visible(False)
+            return
+
+        # Update is available!
+        self._pending_update = res
+        latest_ver = res.get("latest_version", "")
+        rel_name = res.get("release_name", f"Blink v{latest_ver}")
+        changelog = res.get("changelog", "Bug fixes and performance improvements.")
+
+        self.lbl_update_sub.set_text(f"● Update Available: v{latest_ver}")
+        self.lbl_update_title.set_markup(f"<b>What's New in {rel_name}:</b>")
+        self.lbl_changelog.set_text(changelog)
+        self.box_update_card.set_visible(True)
+        self.btn_install_update.set_sensitive(True)
+        self.btn_install_update.set_visible(True)
+        self.prog_update.set_visible(False)
+        self.lbl_install_status.set_text("")
+
+    def _on_install_update_clicked(self, button: Gtk.Button) -> None:
+        if not hasattr(self, "_pending_update") or not self._pending_update:
+            return
+
+        deb_url = self._pending_update.get("deb_url")
+        if not deb_url:
+            self.lbl_install_status.set_text("No Debian package found in this release.")
+            return
+
+        self.btn_install_update.set_sensitive(False)
+        self.prog_update.set_visible(True)
+        self.prog_update.set_fraction(0.0)
+        self.lbl_install_status.set_text("Connecting...")
+
+        dest_file = updater.DOWNLOAD_CACHE_DIR / self._pending_update.get("deb_filename", "blink_latest.deb")
+
+        def _progress(fraction: float, dl: int, total: int):
+            def _update():
+                self.prog_update.set_fraction(fraction)
+                if total > 0:
+                    mb_dl = dl / (1024 * 1024)
+                    mb_tot = total / (1024 * 1024)
+                    self.lbl_install_status.set_text(f"Downloading: {mb_dl:.1f} MB / {mb_tot:.1f} MB ({int(fraction*100)}%)")
+                else:
+                    self.lbl_install_status.set_text(f"Downloading... ({int(fraction*100)}%)")
+            GLib.idle_add(_update)
+
+        def _bg():
+            ok, msg = updater.download_package(deb_url, dest_file, progress_callback=_progress)
+            if not ok:
+                GLib.idle_add(self._on_install_complete, False, f"Download failed: {msg}")
+                return
+
+            GLib.idle_add(lambda: self.lbl_install_status.set_text("Installing package (authenticating with pkexec)..."))
+            ok_inst, msg_inst = updater.install_deb_package(dest_file)
+            GLib.idle_add(self._on_install_complete, ok_inst, msg_inst)
+
+        threading.Thread(target=_bg, daemon=True, name="BlinkUpdateInstaller").start()
+
+    def _on_install_complete(self, success: bool, message: str) -> None:
+        self.prog_update.set_visible(False)
+        self.btn_install_update.set_sensitive(True)
+
+        if success:
+            latest_ver = self._pending_update.get("latest_version", "")
+            self.lbl_install_status.set_text("✓ Updated successfully!")
+            self.lbl_update_sub.set_text(f"✓ Blink updated to v{latest_ver}")
+            self.lbl_ver.set_text(f"Version {latest_ver} • Apple Human Interface Edition")
+            self.box_update_card.set_visible(False)
+
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                flags=Gtk.DialogFlags.MODAL,
+                message_type=Gtk.MessageType.INFO,
+                buttons=Gtk.ButtonsType.OK,
+                text="Blink Updated Successfully!"
+            )
+            dialog.format_secondary_text(
+                f"Blink has been updated to version {latest_ver}.\n"
+                "The background daemon has been restarted with the latest fixes and improvements."
+            )
+            dialog.run()
+            dialog.destroy()
+        else:
+            self.lbl_install_status.set_text(f"Install error: {message}")
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                flags=Gtk.DialogFlags.MODAL,
+                message_type=Gtk.MessageType.ERROR,
+                buttons=Gtk.ButtonsType.OK,
+                text="Update Installation Failed"
+            )
+            dialog.format_secondary_text(f"Could not complete installation:\n{message}")
+            dialog.run()
+            dialog.destroy()
 
     # --------------------------------------------------------------------------
     # Settings Callbacks & Background Synchronization

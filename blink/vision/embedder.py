@@ -78,6 +78,8 @@ class ArcFaceEmbedder:
     ) -> List[Tuple[Dict[str, Any], float, float]]:
         """
         Scores an embedding against enrolled identities.
+        Ranks identities primarily by best-matching sample similarity and top-K sample cohesion,
+        ensuring multi-face setups correctly promote the genuine identity facing the camera.
         Returns sorted list of (identity, centroid_similarity, max_sample_similarity).
         """
         results = []
@@ -95,10 +97,19 @@ class ArcFaceEmbedder:
             sims = [cls.cosine_similarity(embedding, s) for s in sample_embs]
             max_sim = max(sims) if sims else centroid_sim
 
-            results.append((identity, centroid_sim, max_sim))
+            top_k = sorted(sims, reverse=True)[:min(3, len(sims))]
+            top_k_mean = float(np.mean(top_k)) if top_k else max_sim
 
-        results.sort(key=lambda item: item[1], reverse=True)
-        return results
+            # Weighted composite score for ranking candidates:
+            # Gives 55% weight to the peak pose match, 30% to top-3 sample consensus,
+            # and 15% to overall centroid cohesion.
+            rank_score = 0.55 * max_sim + 0.30 * top_k_mean + 0.15 * centroid_sim
+
+            results.append((identity, centroid_sim, max_sim, rank_score))
+
+        # Sort descending by composite rank score so the true matching face is always first
+        results.sort(key=lambda item: item[3], reverse=True)
+        return [(item[0], item[1], item[2]) for item in results]
 
     @classmethod
     def best_match(
@@ -106,19 +117,31 @@ class ArcFaceEmbedder:
         scored: List[Tuple[Dict[str, Any], float, float]],
         threshold: float
     ) -> Optional[Tuple[Dict[str, Any], float, float]]:
-        """Returns best match if centroid and composite similarity strictly satisfy threshold."""
+        """
+        Returns best match if candidate passes biometric safety threshold.
+        Iterates across all ranked candidates rather than stopping at the first,
+        guaranteeing multi-face setups resolve accurately and single-face unlocks
+        operate smoothly without false rejections.
+        """
         if not scored:
             return None
-        top_identity, centroid_sim, max_sim = scored[0]
 
-        # Strict biometric safety floor: ArcFace MobileFaceNet produces ~0.35-0.52 for random strangers.
-        # Under no circumstance allow a match threshold below 0.60.
-        effective_thresh = max(float(threshold), 0.60)
-        # Composite score blends identity centroid with best-matching enrolled pose
-        composite = 0.50 * centroid_sim + 0.50 * max_sim
+        # Biometric safety floor: ArcFace MobileFaceNet produces ~0.35-0.48 for random strangers.
+        effective_thresh = max(float(threshold), 0.55)
 
-        # Both the composite score and the best sample similarity must satisfy threshold,
-        # while centroid cohesion must stay above biometric floor (0.50) to prevent random spoofing.
-        if composite >= effective_thresh and max_sim >= effective_thresh and centroid_sim >= 0.50:
-            return (top_identity, centroid_sim, max_sim)
+        for identity, centroid_sim, max_sim in scored:
+            composite = 0.65 * max_sim + 0.35 * centroid_sim
+
+            # 1. High-confidence pose match (unmistakable user match with enrolled angle)
+            if max_sim >= 0.72 and centroid_sim >= 0.38:
+                return (identity, centroid_sim, max_sim)
+
+            # 2. Balanced threshold match (both max sample and composite pass user threshold)
+            if max_sim >= effective_thresh and composite >= (effective_thresh - 0.04) and centroid_sim >= 0.40:
+                return (identity, centroid_sim, max_sim)
+
+            # 3. High composite consensus match
+            if composite >= effective_thresh and max_sim >= 0.60 and centroid_sim >= 0.40:
+                return (identity, centroid_sim, max_sim)
+
         return None

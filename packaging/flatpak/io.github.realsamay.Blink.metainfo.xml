@@ -44,6 +44,11 @@
     <keyword>lockscreen</keyword>
   </keywords>
   <releases>
+    <release version="2.2.0" date="2026-11-19">
+      <description>
+        <p>Resolved multi-face unlock and single-face sluggishness; added native in-app self-updater and GitHub release synchronizer.</p>
+      </description>
+    </release>
     <release version="2.1.0" date="2026-11-04">
       <description>
         <p>Blink release with optimized YuNet 5-point landmark detection and lockscreen biometric overlay.</p>

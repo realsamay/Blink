@@ -87,6 +87,79 @@ class TestBiometricMatching(unittest.TestCase):
             self.assertGreaterEqual(loaded.match_threshold, 0.55)
             self.assertEqual(loaded.match_threshold, 0.65)
 
+    def test_multi_face_unlock_and_promotion(self):
+        """Verify that when multiple identities are enrolled, the active face is correctly matched."""
+        # Alice (single pose)
+        v_alice = np.random.randn(512).astype(np.float32)
+        v_alice /= np.linalg.norm(v_alice)
+        alice = {
+            "id": "alice-1",
+            "name": "Alice",
+            "is_enabled": True,
+            "samples": [{"embedding": v_alice.tolist()}]
+        }
+
+        # Bob (multiple poses across various angles)
+        v_bob = np.random.randn(512).astype(np.float32)
+        v_bob /= np.linalg.norm(v_bob)
+        bob_samples = []
+        for _ in range(6):
+            noise = np.random.randn(512).astype(np.float32) * 0.25
+            sample = v_bob + noise
+            sample /= np.linalg.norm(sample)
+            bob_samples.append({"embedding": sample.tolist()})
+
+        bob = {
+            "id": "bob-1",
+            "name": "Bob",
+            "is_enabled": True,
+            "samples": bob_samples
+        }
+
+        # Query is Bob closely matching Bob's first sample (~0.88 similarity)
+        target_sample = np.array(bob_samples[0]["embedding"], dtype=np.float32)
+        q_noise = np.random.randn(512).astype(np.float32)
+        q_noise /= np.linalg.norm(q_noise)
+        query = 0.85 * target_sample + 0.15 * q_noise
+        query /= np.linalg.norm(query)
+
+        scored = self.embedder.score_identities(query, [alice, bob])
+        # Bob must be ranked at index 0 due to composite similarity
+        self.assertEqual(scored[0][0]["name"], "Bob", "Bob must be ranked highest when facing the camera")
+
+        matched = self.embedder.best_match(scored, threshold=0.65)
+        self.assertIsNotNone(matched, "Bob must successfully unlock in multi-face setup")
+        self.assertEqual(matched[0]["name"], "Bob")
+
+    def test_single_face_diverse_centroid_cohesion(self):
+        """Enrolled user with slight angle/lighting variation unlocks smoothly without threshold struggle."""
+        base = np.random.randn(512).astype(np.float32)
+        base /= np.linalg.norm(base)
+
+        user = {
+            "id": "user-2",
+            "name": "Developer",
+            "is_enabled": True,
+            "samples": [
+                {"embedding": base.tolist()},
+                {"embedding": (base + 0.3 * np.random.randn(512)).tolist()}
+            ]
+        }
+        for s in user["samples"]:
+            arr = np.array(s["embedding"], dtype=np.float32)
+            s["embedding"] = (arr / np.linalg.norm(arr)).tolist()
+
+        # Query matches sample 0 at ~0.78, centroid around 0.55
+        noise = np.random.randn(512).astype(np.float32)
+        noise /= np.linalg.norm(noise)
+        query = 0.78 * base + 0.22 * noise
+        query /= np.linalg.norm(query)
+
+        scored = self.embedder.score_identities(query, [user])
+        matched = self.embedder.best_match(scored, threshold=0.65)
+        self.assertIsNotNone(matched, "Genuine face must unlock smoothly")
+        self.assertEqual(matched[0]["name"], "Developer")
+
 
 if __name__ == "__main__":
     unittest.main()

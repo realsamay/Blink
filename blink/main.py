@@ -550,6 +550,65 @@ def run_web_preview(port: int = 5050):
         print(f"Failed to launch web preview: {e}")
 
 
+def run_check_update():
+    from blink.core import updater
+    print(f"[Blink] Current version: v{updater.CURRENT_VERSION}")
+    print("[Blink] Checking GitHub for updates...")
+    res = updater.check_for_updates()
+    if res.get("status") == "error":
+        print(f"[Blink] Error: {res.get('error')}")
+        return
+    if res.get("has_update"):
+        latest = res.get("latest_version")
+        print(f"[Blink] New version available: v{latest} ({res.get('release_name')})")
+        print(f"[Blink] Release notes:\n{res.get('changelog')}")
+        print("\nRun 'blink update' or use the About tab in Settings to install.")
+    else:
+        print(f"[Blink] ✓ Blink is up to date (v{updater.CURRENT_VERSION}).")
+
+
+def run_update():
+    from blink.core import updater
+    print(f"[Blink] Current version: v{updater.CURRENT_VERSION}")
+    print("[Blink] Checking GitHub for updates...")
+    res = updater.check_for_updates()
+    if res.get("status") == "error":
+        print(f"[Blink] Error: {res.get('error')}")
+        return
+    if not res.get("has_update"):
+        print(f"[Blink] ✓ Blink is already up to date (v{updater.CURRENT_VERSION}).")
+        return
+
+    latest = res.get("latest_version")
+    deb_url = res.get("deb_url")
+    if not deb_url:
+        print("[Blink] No Debian package (.deb) found in the latest release.")
+        return
+
+    print(f"[Blink] Downloading Blink v{latest}...")
+    dest = updater.DOWNLOAD_CACHE_DIR / res.get("deb_filename", f"blink_{latest}_amd64.deb")
+
+    def _prog(fraction, dl, total):
+        pct = int(fraction * 100)
+        mb_dl = dl / (1024 * 1024)
+        mb_tot = total / (1024 * 1024) if total > 0 else 0
+        sys.stdout.write(f"\rDownloading: {pct}% ({mb_dl:.1f}MB / {mb_tot:.1f}MB)")
+        sys.stdout.flush()
+
+    ok, msg = updater.download_package(deb_url, dest, progress_callback=_prog)
+    print()
+    if not ok:
+        print(f"[Blink] Download failed: {msg}")
+        return
+
+    print(f"[Blink] Installing package via pkexec: {dest}...")
+    ok_inst, msg_inst = updater.install_deb_package(dest)
+    if ok_inst:
+        print(f"[Blink] ✓ Successfully updated to v{latest}! Background services restarted.")
+    else:
+        print(f"[Blink] Update installation failed: {msg_inst}")
+
+
 def main():
     if IS_WINDOWS:
         try:
@@ -590,6 +649,8 @@ def main():
     p_unlock_app = subparsers.add_parser("unlock-app", help="Remove an application from Blink App Lock")
     p_unlock_app.add_argument("app", help="Application name or process identifier to remove")
 
+    subparsers.add_parser("check-update", help="Check for available Blink updates")
+    subparsers.add_parser("update", help="Download and install latest Blink update")
     subparsers.add_parser("list-locked", help="List all protected apps, files, and folders")
     subparsers.add_parser("install-context-menu", help="Install right-click context menu integration")
 
@@ -631,6 +692,10 @@ def main():
             print(f"[Blink Lock] Removed application '{args.app}' from App Lock protection.")
         else:
             print(f"[Blink Lock] Application '{args.app}' was not in the locked list.")
+    elif args.command == "check-update":
+        run_check_update()
+    elif args.command == "update":
+        run_update()
     elif args.command == "list-locked":
         run_list_locked()
     elif args.command == "install-context-menu":
