@@ -111,7 +111,7 @@ with open(setup_exe, "wb") as f_out:
 print(f"[✓] Successfully built: {setup_exe} ({setup_exe.stat().st_size} bytes)")
 
 # 5. Create full portable zip package for Windows
-portable_zip = DIST_DIR / "Blink-v2.2.1-Windows.zip"
+portable_zip = DIST_DIR / "Blink-v2.1.0-Windows.zip"
 with zipfile.ZipFile(portable_zip, "w", zipfile.ZIP_DEFLATED) as zf:
     zf.write(blink_exe, arcname="Blink/Blink.exe")
     zf.write(setup_exe, arcname="Blink/Blink-Setup-x64.exe")
@@ -138,10 +138,10 @@ print(f"[✓] Successfully created portable zip: {portable_zip} ({portable_zip.s
 if WINDOWS_DOWNLOADS.exists():
     shutil.copyfile(blink_exe, WINDOWS_DOWNLOADS / "Blink.exe")
     shutil.copyfile(setup_exe, WINDOWS_DOWNLOADS / "Blink-Setup-x64.exe")
-    shutil.copyfile(portable_zip, WINDOWS_DOWNLOADS / "Blink-v2.2.1-Windows.zip")
+    shutil.copyfile(portable_zip, WINDOWS_DOWNLOADS / "Blink-v2.1.0-Windows.zip")
     print(f"[✓] Copied to Windows Downloads folder: {WINDOWS_DOWNLOADS}")
     print(f"    - {WINDOWS_DOWNLOADS / 'Blink.exe'}")
     print(f"    - {WINDOWS_DOWNLOADS / 'Blink-Setup-x64.exe'}")
-    print(f"    - {WINDOWS_DOWNLOADS / 'Blink-v2.2.1-Windows.zip'}")
+    print(f"    - {WINDOWS_DOWNLOADS / 'Blink-v2.1.0-Windows.zip'}")
 else:
     print(f"[!] Warning: Windows Downloads folder not accessible at {WINDOWS_DOWNLOADS}")

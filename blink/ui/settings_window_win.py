@@ -82,10 +82,37 @@ class SettingsWindowWin(ctk.CTk):
             self.pages[page_id] = page
 
             # Content placeholder
-            lbl = ctk.CTkLabel(page, text=f"{page_id.capitalize()} Page", font=ctk.CTkFont(size=20, weight="bold"))
-            lbl.pack(padx=20, pady=20)
+            if page_id != "about":
+                lbl = ctk.CTkLabel(page, text=f"{page_id.capitalize()} Page", font=ctk.CTkFont(size=20, weight="bold"))
+                lbl.pack(padx=20, pady=20)
+            else:
+                self.setup_about_page(page)
 
         self.pages["face_id"].pack(fill="both", expand=True)
+
+    def setup_about_page(self, page):
+        lbl = ctk.CTkLabel(page, text="About Blink", font=ctk.CTkFont(size=20, weight="bold"))
+        lbl.pack(padx=20, pady=20)
+
+        btn_update = ctk.CTkButton(page, text="Check for Updates", command=self.check_updates_event)
+        btn_update.pack(padx=20, pady=10)
+
+        self.update_label = ctk.CTkLabel(page, text="")
+        self.update_label.pack(padx=20, pady=10)
+
+    def check_updates_event(self):
+        from blink.core.updater import check_for_updates
+        self.update_label.configure(text="Checking...")
+
+        # Run check in thread to avoid freezing UI
+        def check():
+            res = check_for_updates()
+            if res.get("has_update"):
+                self.update_label.configure(text=f"Update available: {res.get('latest_version')}")
+            else:
+                self.update_label.configure(text="Blink is up to date.")
+
+        threading.Thread(target=check, daemon=True).start()
 
     def switch_page(self, page_id):
         for p in self.pages.values():

@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.request
 import urllib.error
@@ -19,9 +21,20 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 from blink import __version__ as CURRENT_VERSION
 
+IS_WINDOWS = platform.system() == "Windows"
 GITHUB_REPO = "realsamay/Blink"
 GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 DOWNLOAD_CACHE_DIR = Path(tempfile.gettempdir()) / "blink_updates"
+
+
+def restart_service() -> None:
+    """Restarts the background Blink daemon service."""
+    if IS_WINDOWS:
+        return
+    try:
+        subprocess.run(["systemctl", "--user", "restart", "blink.service"], check=False)
+    except Exception as e:
+        print(f"[Updater] Could not restart blink.service: {e}")
 
 
 def parse_semver(version_str: str) -> Tuple[int, ...]:
@@ -91,12 +104,25 @@ def check_for_updates() -> Dict[str, Any]:
             break
 
     # If no specific amd64 deb matched, pick first .deb
-    if not deb_url:
+    if not deb_url and not IS_WINDOWS:
         for asset in assets:
             if asset.get("name", "").endswith(".deb"):
                 deb_url = asset.get("browser_download_url")
                 deb_size = asset.get("size", 0)
                 deb_filename = asset.get("name")
+                break
+
+    # Locate .exe asset for Windows
+    exe_url = None
+    exe_size = 0
+    exe_filename = None
+    if IS_WINDOWS:
+        for asset in assets:
+            name = asset.get("name", "")
+            if name.endswith(".exe") and "Blink" in name:
+                exe_url = asset.get("browser_download_url")
+                exe_size = asset.get("size", 0)
+                exe_filename = name
                 break
 
     has_update = is_newer_version(latest_version, CURRENT_VERSION)
@@ -111,8 +137,11 @@ def check_for_updates() -> Dict[str, Any]:
         "changelog": changelog,
         "published_at": published_at,
         "deb_url": deb_url,
+        "exe_url": exe_url,
         "deb_size": deb_size,
+        "exe_size": exe_size,
         "deb_filename": deb_filename or f"blink_{latest_version}_amd64.deb",
+        "exe_filename": exe_filename or f"Blink-{latest_version}.exe",
         "html_url": html_url,
         "error": None,
     }
@@ -164,6 +193,22 @@ def download_package(
         return False, str(e)
 
 
+def _sync_local_checkout_if_needed() -> None:
+    """If running from a local checkout, sync newly installed package files."""
+    try:
+        sys_lib = Path("/usr/lib/blink/blink")
+        current_pkg = Path(__file__).resolve().parent.parent
+        if sys_lib.is_dir() and current_pkg.is_dir() and sys_lib != current_pkg:
+            for item in sys_lib.rglob("*"):
+                if item.is_file() and "__pycache__" not in str(item):
+                    rel = item.relative_to(sys_lib)
+                    dest = current_pkg / rel
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(item, dest)
+    except Exception as e:
+        print(f"[Updater] Notice: Local checkout sync skipped: {e}")
+
+
 def install_deb_package(deb_path: Path) -> Tuple[bool, str]:
     """
     Installs the downloaded .deb package using pkexec (Polkit root elevation).
@@ -183,6 +228,7 @@ def install_deb_package(deb_path: Path) -> Tuple[bool, str]:
     try:
         proc = subprocess.run(cmd_apt, capture_output=True, text=True, timeout=120)
         if proc.returncode == 0:
+            _sync_local_checkout_if_needed()
             restart_service()
             return True, "Successfully installed via apt."
     except subprocess.TimeoutExpired:
@@ -195,6 +241,7 @@ def install_deb_package(deb_path: Path) -> Tuple[bool, str]:
     try:
         proc = subprocess.run(cmd_dpkg, capture_output=True, text=True, timeout=120)
         if proc.returncode == 0:
+            _sync_local_checkout_if_needed()
             restart_service()
             return True, "Successfully installed via dpkg."
         return False, f"Package installation failed: {proc.stderr or proc.stdout}"
@@ -202,10 +249,20 @@ def install_deb_package(deb_path: Path) -> Tuple[bool, str]:
         return False, f"Execution failed: {e}"
 
 
-def restart_service() -> None:
-    """Reloads systemd daemon and restarts the user's blink.service."""
-    try:
-        subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True, timeout=5)
-        subprocess.run(["systemctl", "--user", "restart", "blink.service"], capture_output=True, timeout=10)
-    except Exception:
-        pass
+def install_windows_update(exe_path: Path) -> Tuple[bool, str]:
+    """
+    Spawns a helper process to replace the running Blink.exe
+    and restart the application.
+    """
+    if not exe_path.is_file():
+        return False, "Update executable not found."
+
+    current_exe = sys.executable
+    helper_script = Path(__file__).resolve().parent.parent / "scripts" / "win_update_helper.py"
+
+    # Launch helper to perform replacement
+    subprocess.Popen([sys.executable, str(helper_script), str(exe_path), current_exe])
+
+    # Close the current app
+    os._exit(0)
+    return True, "Update initiated."
