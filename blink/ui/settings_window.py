@@ -2064,14 +2064,18 @@ class SettingsWindow(Gtk.Window):
 
         self._add_inset_row(group_update, "Blink Updates", self.lbl_update_sub, h_ctrl, is_last=False)
 
-        # Expandable Update Card Box
+        # Expandable Update Card with Revealer
+        self.rev_update_card = Gtk.Revealer()
+        self.rev_update_card.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
+        self.rev_update_card.set_transition_duration(250)
+        self.rev_update_card.set_reveal_child(False)
+
         self.box_update_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self.box_update_card.set_margin_start(16)
         self.box_update_card.set_margin_end(16)
         self.box_update_card.set_margin_top(12)
         self.box_update_card.set_margin_bottom(14)
-        self.box_update_card.set_no_show_all(True)
-        self.box_update_card.set_visible(False)
+        self.rev_update_card.add(self.box_update_card)
 
         self.lbl_update_title = Gtk.Label()
         self.lbl_update_title.set_xalign(0)
@@ -2109,7 +2113,7 @@ class SettingsWindow(Gtk.Window):
         self.prog_update.set_visible(False)
         self.box_update_card.pack_start(self.prog_update, False, False, 0)
 
-        group_update.pack_start(self.box_update_card, False, False, 0)
+        group_update.pack_start(self.rev_update_card, False, False, 0)
 
         page.pack_start(group_update, False, False, 0)
 
@@ -2171,27 +2175,63 @@ class SettingsWindow(Gtk.Window):
         if res.get("status") == "error":
             err_msg = res.get("error", "Network error")
             self.lbl_update_sub.set_text(f"Check failed: {err_msg}")
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                flags=Gtk.DialogFlags.MODAL,
+                message_type=Gtk.MessageType.WARNING,
+                buttons=Gtk.ButtonsType.OK,
+                text="Update Check Failed",
+            )
+            dialog.format_secondary_text(f"Could not connect to GitHub to check for updates:\n\n{err_msg}")
+            dialog.run()
+            dialog.destroy()
             return
 
-        if not res.get("has_update"):
-            self.lbl_update_sub.set_text(f"✓ Blink is up to date (v{updater.CURRENT_VERSION})")
-            self.box_update_card.set_visible(False)
-            return
-
-        # Update is available!
-        self._pending_update = res
+        has_update = res.get("has_update", False)
         latest_ver = res.get("latest_version", "")
         rel_name = res.get("release_name", f"Blink v{latest_ver}")
         changelog = res.get("changelog", "Bug fixes and performance improvements.")
 
-        self.lbl_update_sub.set_text(f"● Update Available: v{latest_ver}")
+        self._pending_update = res
         self.lbl_update_title.set_markup(f"<b>What's New in {rel_name}:</b>")
         self.lbl_changelog.set_text(changelog)
-        self.box_update_card.set_visible(True)
-        self.btn_install_update.set_sensitive(True)
-        self.btn_install_update.set_visible(True)
         self.prog_update.set_visible(False)
         self.lbl_install_status.set_text("")
+
+        if has_update:
+            self.lbl_update_sub.set_text(f"● Update Available: v{latest_ver}")
+            self.btn_install_update.set_label(f"Download & Install Update (v{latest_ver})")
+            self.rev_update_card.set_reveal_child(True)
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                flags=Gtk.DialogFlags.MODAL,
+                message_type=Gtk.MessageType.INFO,
+                buttons=Gtk.ButtonsType.OK,
+                text=f"Update Available: Blink v{latest_ver}",
+            )
+            dialog.format_secondary_text(
+                f"A new version of Blink ({rel_name}) is available!\n\n"
+                "Review the release highlights below and click 'Download & Install Update' to upgrade."
+            )
+            dialog.run()
+            dialog.destroy()
+        else:
+            self.lbl_update_sub.set_text(f"✓ Blink is up to date (v{updater.CURRENT_VERSION})")
+            self.btn_install_update.set_label(f"Reinstall / Repair v{latest_ver}")
+            self.rev_update_card.set_reveal_child(True)
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                flags=Gtk.DialogFlags.MODAL,
+                message_type=Gtk.MessageType.INFO,
+                buttons=Gtk.ButtonsType.OK,
+                text="Blink is Up to Date",
+            )
+            dialog.format_secondary_text(
+                f"You are currently running Blink v{updater.CURRENT_VERSION}, which is the latest version available.\n\n"
+                f"Latest published release: {rel_name}"
+            )
+            dialog.run()
+            dialog.destroy()
 
     def _on_install_update_clicked(self, button: Gtk.Button) -> None:
         if not hasattr(self, "_pending_update") or not self._pending_update:
@@ -2241,7 +2281,7 @@ class SettingsWindow(Gtk.Window):
             self.lbl_install_status.set_text("✓ Updated successfully!")
             self.lbl_update_sub.set_text(f"✓ Blink updated to v{latest_ver}")
             self.lbl_ver.set_text(f"Version {latest_ver} • Apple Human Interface Edition")
-            self.box_update_card.set_visible(False)
+            self.rev_update_card.set_reveal_child(False)
 
             dialog = Gtk.MessageDialog(
                 transient_for=self,
