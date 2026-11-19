@@ -94,7 +94,20 @@ def run_daemon():
 
 
 def run_settings():
-    if IS_WINDOWS or Gtk is None:
+    # Attempt to load native UI first
+    if IS_WINDOWS:
+        try:
+            from blink.ui.settings_window_win import SettingsWindowWin
+            win = SettingsWindowWin()
+            win.mainloop()
+            return
+        except ImportError:
+            print("[Blink] Native Windows UI not found, falling back to Web UI.")
+        except Exception as e:
+            print(f"[Blink] Native Windows UI failed to load: {e}")
+
+    # Fallback to Linux GTK UI or Web UI
+    if Gtk is None:
         try:
             from blink.ui.web_server import run_web_server
             run_web_server(port=5050, open_browser=True)
@@ -106,16 +119,12 @@ def run_settings():
 
             # If running in windowed GUI mode without a console, show native Windows alert
             has_tty = sys.stdin is not None and hasattr(sys.stdin, "isatty") and sys.stdin.isatty()
-            if not has_tty:
+            if not has_tty and IS_WINDOWS:
                 try:
                     import ctypes
                     ctypes.windll.user32.MessageBoxW(0, f"Blink could not start settings:\n\n{e}", "Blink Error", 0x10)
                 except Exception:
                     pass
-                return
-
-            print("[Blink] Opening terminal configuration wizard.")
-            run_terminal_settings()
             return
 
     from blink.ui.settings_window import SettingsWindow

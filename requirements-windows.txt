@@ -5,3 +5,4 @@ pillow>=10.0.0
 packaging>=21.0
 protobuf>=3.20.0
 onnxruntime>=1.15.0
+customtkinter>=5.2.0
