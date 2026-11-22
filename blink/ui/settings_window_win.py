@@ -81,38 +81,138 @@ class SettingsWindowWin(ctk.CTk):
             page = ctk.CTkFrame(self.main_frame, fg_color="transparent")
             self.pages[page_id] = page
 
-            # Content placeholder
-            if page_id != "about":
-                lbl = ctk.CTkLabel(page, text=f"{page_id.capitalize()} Page", font=ctk.CTkFont(size=20, weight="bold"))
-                lbl.pack(padx=20, pady=20)
-            else:
+            # Content
+            if page_id == "about":
                 self.setup_about_page(page)
+            elif page_id == "lock":
+                self.setup_lock_page(page)
+            else:
+                lbl = ctk.CTkLabel(page, text=f"{page_id.replace('_', ' ').capitalize()} Page", font=ctk.CTkFont(size=20, weight="bold"))
+                lbl.pack(padx=20, pady=20)
 
         self.pages["face_id"].pack(fill="both", expand=True)
+
+    def setup_lock_page(self, page):
+        from blink.core.lock_manager import BlinkLockManager
+        mgr = BlinkLockManager.get_instance()
+
+        lbl = ctk.CTkLabel(page, text="Blink Lock", font=ctk.CTkFont(size=20, weight="bold"))
+        lbl.pack(padx=20, pady=20, anchor="w")
+
+        # Enable switch
+        self.lock_switch = ctk.CTkSwitch(page, text="Enable Blink Lock", command=lambda: mgr.set_enabled(self.lock_switch.get()))
+        self.lock_switch.set(mgr.is_enabled())
+        self.lock_switch.pack(padx=20, pady=10, anchor="w")
+
+        # List of items
+        self.lock_list_frame = ctk.CTkScrollableFrame(page, label_text="Protected Items")
+        self.lock_list_frame.pack(padx=20, pady=10, fill="both", expand=True)
+
+        self.refresh_lock_list()
+
+        # Add buttons
+        btn_frame = ctk.CTkFrame(page, fg_color="transparent")
+        btn_frame.pack(padx=20, pady=20, fill="x")
+
+        ctk.CTkButton(btn_frame, text="Add App", command=self.add_app_dialog).pack(side="left", padx=5)
+        ctk.CTkButton(btn_frame, text="Refresh", command=self.refresh_lock_list).pack(side="left", padx=5)
+
+    def refresh_lock_list(self):
+        from blink.core.lock_manager import BlinkLockManager
+        mgr = BlinkLockManager.get_instance()
+
+        # Clear existing
+        for widget in self.lock_list_frame.winfo_children():
+            widget.destroy()
+
+        # Add items
+        apps = mgr.get_locked_apps()
+        items = mgr.get_locked_items()
+
+        for app in apps:
+            frame = ctk.CTkFrame(self.lock_list_frame)
+            frame.pack(fill="x", pady=5)
+            ctk.CTkLabel(frame, text=f"🔒 App: {app['name']}").pack(side="left", padx=10)
+            ctk.CTkButton(frame, text="Remove", width=60, fg_color="#FF3B30",
+                          command=lambda k=app['key']: self.remove_app(k)).pack(side="right", padx=10)
+
+        for item in items:
+            frame = ctk.CTkFrame(self.lock_list_frame)
+            frame.pack(fill="x", pady=5)
+            ctk.CTkLabel(frame, text=f"📦 {item['type'].capitalize()}: {item['name']}").pack(side="left", padx=10)
+            # Remove item logic... (omitted for brevity)
+
+    def add_app_dialog(self):
+        # Placeholder for dialog, use simple input for now
+        from tkinter import simpledialog
+        app_name = simpledialog.askstring("Add App", "Enter App Name (e.g. chrome):")
+        if app_name:
+            from blink.core.lock_manager import BlinkLockManager
+            BlinkLockManager.get_instance().add_locked_app(app_name, app_name)
+            self.refresh_lock_list()
+
+    def remove_app(self, key):
+        from blink.core.lock_manager import BlinkLockManager
+        BlinkLockManager.get_instance().remove_locked_app(key)
+        self.refresh_lock_list()
 
     def setup_about_page(self, page):
         lbl = ctk.CTkLabel(page, text="About Blink", font=ctk.CTkFont(size=20, weight="bold"))
         lbl.pack(padx=20, pady=20)
 
-        btn_update = ctk.CTkButton(page, text="Check for Updates", command=self.check_updates_event)
-        btn_update.pack(padx=20, pady=10)
+        self.btn_update = ctk.CTkButton(page, text="Check for Updates", command=self.check_updates_event)
+        self.btn_update.pack(padx=20, pady=10)
 
         self.update_label = ctk.CTkLabel(page, text="")
         self.update_label.pack(padx=20, pady=10)
 
+        self.btn_install = ctk.CTkButton(page, text="Install Update", fg_color="#34C759", command=self.install_update_event)
+        self.btn_install.pack(padx=20, pady=10)
+        self.btn_install.pack_forget() # Initially hidden
+        self.latest_exe_path = None
+
     def check_updates_event(self):
-        from blink.core.updater import check_for_updates
+        from blink.core.updater import check_for_updates, DOWNLOAD_CACHE_DIR
         self.update_label.configure(text="Checking...")
+        self.btn_install.pack_forget()
 
         # Run check in thread to avoid freezing UI
         def check():
             res = check_for_updates()
             if res.get("has_update"):
                 self.update_label.configure(text=f"Update available: {res.get('latest_version')}")
+                self.btn_install.pack(padx=20, pady=10)
+                # Store URL and filename for download
+                self.latest_exe_url = res.get("exe_url")
+                self.latest_exe_filename = res.get("exe_filename")
             else:
                 self.update_label.configure(text="Blink is up to date.")
+                self.btn_install.pack_forget()
 
         threading.Thread(target=check, daemon=True).start()
+
+    def install_update_event(self):
+        from blink.core.updater import download_package, install_windows_update, DOWNLOAD_CACHE_DIR
+
+        if not hasattr(self, 'latest_exe_url') or not self.latest_exe_url:
+            return
+
+        self.update_label.configure(text="Downloading...")
+        self.btn_install.pack_forget()
+
+        def download():
+            dest_path = DOWNLOAD_CACHE_DIR / self.latest_exe_filename
+            success, msg = download_package(self.latest_exe_url, dest_path)
+
+            if success:
+                self.update_label.configure(text="Download complete. Installing...")
+                # Call the update helper
+                install_windows_update(dest_path)
+            else:
+                self.update_label.configure(text=f"Download failed: {msg}")
+                self.btn_install.pack(padx=20, pady=10)
+
+        threading.Thread(target=download, daemon=True).start()
 
     def switch_page(self, page_id):
         for p in self.pages.values():
