@@ -361,6 +361,12 @@ class LinuxNotchOverlayWindow(Gtk.Window):
         self.phase = OverlayPhase.SCANNING
         self.idle_frame_idx = 0
 
+    def reset_to_idle(self) -> None:
+        self.arm()
+
+    def show_card(self) -> None:
+        self.begin_scanning()
+
     def begin_scanning(self) -> None:
         """Smoothly reveals overlay and springs out from behind camera bezel."""
         self._is_active = True

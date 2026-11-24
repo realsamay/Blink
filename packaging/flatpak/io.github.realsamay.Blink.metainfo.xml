@@ -44,6 +44,16 @@
     <keyword>lockscreen</keyword>
   </keywords>
   <releases>
+    <release version="2.2.5" date="2026-11-24">
+      <description>
+        <p>In-place folder and file locking with dynamic red folder indicator and lock emblems, fixed locked app launch and unminimization, multi-cycle Face ID retry with automated password fallback modal.</p>
+      </description>
+    </release>
+    <release version="2.2.4" date="2026-11-23">
+      <description>
+        <p>Windows compatibility improvements and packaging updates.</p>
+      </description>
+    </release>
     <release version="2.2.3" date="2026-11-20">
       <description>
         <p>Fixed enrollment preview camera freeze on landmark alignment, optimized lockscreen face detection to 480p, tuned biometric threshold matching, and reduced liveness false positives.</p>

@@ -116,11 +116,9 @@ class FaceUnlockCoordinator:
         if self.overlay:
             self.overlay._is_desktop_preview = True
             if not IS_WINDOWS and GLib is not None:
-                GLib.idle_add(self.overlay.reset_to_idle)
-                GLib.idle_add(self.overlay.show_card)
+                GLib.idle_add(self.overlay.begin_scanning)
             elif IS_WINDOWS:
-                self.overlay.reset_to_idle()
-                self.overlay.show_card()
+                self.overlay.begin_scanning()
 
         started = self.camera.start(device_index=self.settings.camera_index)
         if not started:
@@ -132,7 +130,8 @@ class FaceUnlockCoordinator:
                     self.overlay.finish_failure()
             return False
 
-        from blink.vision.liveness import LivenessAnalyzer, LivenessDecisionKind
+        from blink.liveness.analyzer import LivenessAnalyzer
+        from blink.liveness.cues import LivenessDecisionKind
         liveness = LivenessAnalyzer()
         t0 = time.time()
         verified = False

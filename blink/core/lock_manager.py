@@ -6,6 +6,7 @@ and native desktop file manager context menu integration for Linux & Windows.
 
 from __future__ import annotations
 
+import ctypes
 import io
 import json
 import math
@@ -30,6 +31,128 @@ from blink.system.platform_info import IS_WINDOWS
 MAGIC_HEADER = b"BLINKLOCK\x02"
 ASSOCIATED_DATA = b"BLINKLOCK_V2"
 LOCK_STORE_FILE = CONFIG_DIR / "locked_items.json"
+FOLDER_PAYLOAD_FILE = ".blink_payload.enc"
+FOLDER_LAUNCHER_NAME = "🔒 Unlock with Face ID.desktop"
+
+
+def set_folder_red_styling(folder_path: Path) -> None:
+    if IS_WINDOWS or not folder_path.is_dir():
+        return
+    path_str = str(folder_path)
+    try:
+        subprocess.run(["gio", "set", "-t", "string", path_str, "metadata::custom-icon-name", "folder-red"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["gio", "set", "-t", "string", path_str, "metadata::nautilus-icon-name", "folder-red"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["gio", "set", "-t", "string", path_str, "metadata::folder-color", "red"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["gio", "set", "-t", "stringv", path_str, "metadata::emblems", "emblem-locked"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        red_icon_candidates = [
+            Path.home() / ".local/share/icons/WhiteSur-dark/places/scalable/folder-red.svg",
+            Path.home() / ".local/share/icons/WhiteSur/places/scalable/folder-red.svg",
+            Path("/usr/share/icons/Papirus/scalable/places/folder-red.svg"),
+            Path("/usr/share/icons/ePapirus-Dark/16x16/places/folder-red.svg"),
+        ]
+        for cand in red_icon_candidates:
+            if cand.exists():
+                subprocess.run(["gio", "set", "-t", "string", path_str, "metadata::custom-icon", cand.as_uri()], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                break
+    except Exception as e:
+        print(f"[BlinkLock] Note: could not set folder red styling: {e}")
+
+
+def remove_folder_red_styling(folder_path: Path) -> None:
+    if IS_WINDOWS or not folder_path.is_dir():
+        return
+    path_str = str(folder_path)
+    try:
+        subprocess.run(["gio", "set", "-t", "unset", path_str, "metadata::custom-icon-name"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["gio", "set", "-t", "unset", path_str, "metadata::nautilus-icon-name"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["gio", "set", "-t", "unset", path_str, "metadata::folder-color"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["gio", "set", "-t", "unset", path_str, "metadata::custom-icon"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["gio", "set", "-t", "unset", path_str, "metadata::emblems"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        print(f"[BlinkLock] Note: could not remove folder red styling: {e}")
+
+
+class _XClientMessageEvent(ctypes.Structure):
+    _fields_ = [
+        ("type", ctypes.c_int),
+        ("serial", ctypes.c_ulong),
+        ("send_event", ctypes.c_int),
+        ("display", ctypes.c_void_p),
+        ("window", ctypes.c_ulong),
+        ("message_type", ctypes.c_ulong),
+        ("format", ctypes.c_int),
+        ("data", ctypes.c_long * 5)
+    ]
+
+
+class _XEvent(ctypes.Union):
+    _fields_ = [
+        ("type", ctypes.c_int),
+        ("xclient", _XClientMessageEvent),
+        ("pad", ctypes.c_long * 24)
+    ]
+
+
+def unminimize_x11_window(win_id: str | int) -> bool:
+    """Restores, unminimizes, and raises an X11 window using standard EWMH protocols."""
+    if IS_WINDOWS or not win_id:
+        return False
+    try:
+        win_num = int(win_id, 16) if isinstance(win_id, str) and win_id.startswith("0x") else int(win_id)
+        x11 = ctypes.cdll.LoadLibrary("libX11.so.6")
+        x11.XOpenDisplay.restype = ctypes.c_void_p
+        x11.XDefaultRootWindow.restype = ctypes.c_ulong
+        x11.XInternAtom.restype = ctypes.c_ulong
+        x11.XSendEvent.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_long, ctypes.c_void_p]
+        x11.XMapRaised.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+        x11.XFlush.argtypes = [ctypes.c_void_p]
+
+        disp = x11.XOpenDisplay(None)
+        if not disp:
+            return False
+        try:
+            root = x11.XDefaultRootWindow(disp)
+            atom_active = x11.XInternAtom(disp, b"_NET_ACTIVE_WINDOW", False)
+            atom_state = x11.XInternAtom(disp, b"_NET_WM_STATE", False)
+            atom_hidden = x11.XInternAtom(disp, b"_NET_WM_STATE_HIDDEN", False)
+
+            # 1. Request window manager remove _NET_WM_STATE_HIDDEN
+            ev_state = _XEvent()
+            ev_state.type = 33  # ClientMessage
+            ev_state.xclient.window = win_num
+            ev_state.xclient.message_type = atom_state
+            ev_state.xclient.format = 32
+            ev_state.xclient.data[0] = 0  # 0 = _NET_WM_STATE_REMOVE
+            ev_state.xclient.data[1] = atom_hidden
+            ev_state.xclient.data[2] = 0
+            ev_state.xclient.data[3] = 1  # 1 = application source
+            ev_state.xclient.data[4] = 0
+            mask = 0x00100000 | 0x00020000  # SubstructureRedirectMask | SubstructureNotifyMask
+            x11.XSendEvent(disp, root, False, mask, ctypes.byref(ev_state))
+
+            # 2. Request window manager activate/focus window
+            ev_act = _XEvent()
+            ev_act.type = 33  # ClientMessage
+            ev_act.xclient.window = win_num
+            ev_act.xclient.message_type = atom_active
+            ev_act.xclient.format = 32
+            ev_act.xclient.data[0] = 2  # 2 = pager / user interaction
+            ev_act.xclient.data[1] = 0  # CurrentTime
+            ev_act.xclient.data[2] = 0
+            ev_act.xclient.data[3] = 0
+            ev_act.xclient.data[4] = 0
+            x11.XSendEvent(disp, root, False, mask, ctypes.byref(ev_act))
+
+            # 3. Direct map and raise
+            x11.XMapRaised(disp, win_num)
+            x11.XFlush(disp)
+            return True
+        finally:
+            x11.XCloseDisplay(disp)
+    except Exception as e:
+        print(f"[BlinkLock] Error unminimizing X11 window {win_id}: {e}")
+        return False
 
 
 class BlinkLockManager:
@@ -180,7 +303,19 @@ class BlinkLockManager:
     def is_path_locked(self, target_path: str | Path) -> bool:
         """Checks if target path is an existing Blink Lock encrypted container."""
         p = Path(target_path).resolve()
-        if not p.exists() or p.is_dir():
+        if not p.exists():
+            return False
+        if p.is_dir():
+            payload = p / FOLDER_PAYLOAD_FILE
+            if payload.exists():
+                try:
+                    with open(payload, "rb") as f:
+                        return f.read(len(MAGIC_HEADER)) == MAGIC_HEADER
+                except Exception:
+                    return False
+            for it in self.get_locked_items():
+                if Path(it.get("locked_path", "")).resolve() == p:
+                    return True
             return False
         try:
             with open(p, "rb") as f:
@@ -191,10 +326,13 @@ class BlinkLockManager:
     def get_container_metadata(self, target_path: str | Path) -> Optional[Dict[str, Any]]:
         """Reads metadata from an encrypted container without full payload decryption."""
         p = Path(target_path).resolve()
-        if not p.exists() or p.is_dir():
+        if not p.exists():
+            return None
+        container_file = (p / FOLDER_PAYLOAD_FILE) if p.is_dir() else p
+        if not container_file.exists():
             return None
         try:
-            with open(p, "rb") as f:
+            with open(container_file, "rb") as f:
                 header = f.read(len(MAGIC_HEADER))
                 if header != MAGIC_HEADER:
                     return None
@@ -211,6 +349,7 @@ class BlinkLockManager:
     def lock_path(self, target_path: str | Path) -> Dict[str, Any]:
         """Encrypts a file or directory into a clean AES-256-GCM package.
         Keeps original clean name without ugly .blinklock extension.
+        Folders remain in-place as directories and visually turn red.
         """
         p = Path(target_path).resolve()
         if not p.exists():
@@ -235,7 +374,10 @@ class BlinkLockManager:
         if is_folder:
             tar_buf = io.BytesIO()
             with tarfile.open(fileobj=tar_buf, mode="w:gz") as tar:
-                tar.add(str(p), arcname=p.name)
+                for entry in p.iterdir():
+                    if entry.name in (FOLDER_PAYLOAD_FILE, FOLDER_LAUNCHER_NAME):
+                        continue
+                    tar.add(str(entry), arcname=entry.name)
             raw_payload = tar_buf.getvalue()
             total_size = len(raw_payload)
         else:
@@ -249,27 +391,73 @@ class BlinkLockManager:
         full_blob = header_len + meta_bytes + raw_payload
         ciphertext = aesgcm.encrypt(nonce, full_blob, ASSOCIATED_DATA)
 
-        # Atomic write of the encrypted package to a hidden temp file
-        temp_dest = p.with_name(f".{p.name}.blink_tmp_{os.getpid()}")
-        try:
-            with open(temp_dest, "wb") as f:
-                f.write(MAGIC_HEADER)
-                f.write(nonce)
-                f.write(ciphertext)
-        except Exception:
-            if temp_dest.exists():
-                temp_dest.unlink()
-            raise
-
-        # Cleanly remove the unencrypted original directory or file
         if is_folder:
-            shutil.rmtree(p)
-        else:
-            p.unlink()
+            # For a folder, keep the directory in-place and turn it RED
+            payload_path = p / FOLDER_PAYLOAD_FILE
+            temp_payload = p / f".tmp_{FOLDER_PAYLOAD_FILE}_{os.getpid()}"
+            try:
+                with open(temp_payload, "wb") as f:
+                    f.write(MAGIC_HEADER)
+                    f.write(nonce)
+                    f.write(ciphertext)
+                os.replace(temp_payload, payload_path)
+            except Exception:
+                if temp_payload.exists():
+                    temp_payload.unlink()
+                raise
 
-        # Replace original path with the encrypted container (same clean name!)
-        os.replace(temp_dest, p)
-        dest_path = p
+            # Cleanly remove all plain unencrypted items inside folder
+            for entry in list(p.iterdir()):
+                if entry.name != FOLDER_PAYLOAD_FILE:
+                    if entry.is_dir():
+                        shutil.rmtree(entry)
+                    else:
+                        entry.unlink()
+
+            # Create desktop unlock launcher inside the folder
+            bin_path = shutil.which("blink") or str(Path.home() / "blink" / "bin" / "blink")
+            launcher_content = f"""[Desktop Entry]
+Type=Application
+Name=🔒 Unlock Folder with Face ID
+Comment=Authenticate with Face ID to decrypt and open this folder
+Exec={bin_path} shield --path "{p}"
+Icon=blink
+Terminal=false
+"""
+            launcher_path = p / FOLDER_LAUNCHER_NAME
+            launcher_path.write_text(launcher_content, encoding="utf-8")
+            try:
+                launcher_path.chmod(0o755)
+            except Exception:
+                pass
+
+            # Apply red styling to folder
+            set_folder_red_styling(p)
+            dest_path = p
+        else:
+            # Atomic write of the encrypted package to a hidden temp file
+            temp_dest = p.with_name(f".{p.name}.blink_tmp_{os.getpid()}")
+            try:
+                with open(temp_dest, "wb") as f:
+                    f.write(MAGIC_HEADER)
+                    f.write(nonce)
+                    f.write(ciphertext)
+            except Exception:
+                if temp_dest.exists():
+                    temp_dest.unlink()
+                raise
+
+            # Cleanly remove unencrypted original file and replace with encrypted package
+            p.unlink()
+            os.replace(temp_dest, p)
+            dest_path = p
+
+            # Apply locked emblem to file
+            if not IS_WINDOWS:
+                try:
+                    subprocess.run(["gio", "set", "-t", "stringv", str(p), "metadata::emblems", "emblem-locked"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except Exception:
+                    pass
 
         # Update registry
         item_record = {
@@ -294,12 +482,21 @@ class BlinkLockManager:
         """Decrypts a Blink Lock package and restores the original file or directory structure."""
         lp = Path(locked_path).resolve()
         if not lp.exists():
-            raise FileNotFoundError(f"Locked file not found: {lp}")
+            raise FileNotFoundError(f"Locked item not found: {lp}")
 
-        with open(lp, "rb") as f:
+        is_folder_container = lp.is_dir()
+        if is_folder_container:
+            payload_path = lp / FOLDER_PAYLOAD_FILE
+            if not payload_path.exists():
+                raise ValueError(f"Not a valid Blink locked folder: {lp.name}")
+            container_file = payload_path
+        else:
+            container_file = lp
+
+        with open(container_file, "rb") as f:
             header = f.read(len(MAGIC_HEADER))
             if header != MAGIC_HEADER:
-                raise ValueError(f"File is not a valid Blink Lock container: {lp.name}")
+                raise ValueError(f"File is not a valid Blink Lock container: {container_file.name}")
             nonce = f.read(12)
             ciphertext = f.read()
 
@@ -314,43 +511,62 @@ class BlinkLockManager:
         meta = json.loads(decrypted[4:4 + header_len].decode("utf-8"))
         payload = decrypted[4 + header_len:]
 
-        item_type = meta.get("type", "file")
+        item_type = meta.get("type", "folder" if is_folder_container else "file")
         original_name = meta.get("name", lp.name[:-10] if lp.name.endswith(".blinklock") else lp.name)
 
-        if restore_dir is not None:
-            dest_target = Path(restore_dir).resolve() / original_name
-        else:
-            orig_path_str = meta.get("original_path")
-            if orig_path_str:
-                dest_target = Path(orig_path_str)
-            else:
-                dest_target = lp.with_name(original_name)
+        if is_folder_container:
+            # Clean folder payload and launcher before restoring contents
+            if (lp / FOLDER_PAYLOAD_FILE).exists():
+                (lp / FOLDER_PAYLOAD_FILE).unlink()
+            if (lp / FOLDER_LAUNCHER_NAME).exists():
+                (lp / FOLDER_LAUNCHER_NAME).unlink()
 
-        # Restore destination directory parent
-        dest_target.parent.mkdir(parents=True, exist_ok=True)
-
-        if item_type == "folder":
-            # Remove container file before extracting folder of the same name
-            lp.unlink()
             tar_buf = io.BytesIO(payload)
             with tarfile.open(fileobj=tar_buf, mode="r:gz") as tar:
-                target_dir = dest_target.parent
                 for member in tar.getmembers():
-                    member_path = (target_dir / member.name).resolve()
-                    if not str(member_path).startswith(str(target_dir)):
+                    member_path = (lp / member.name).resolve()
+                    if not str(member_path).startswith(str(lp)):
                         raise SecurityError(f"Malicious archive member path detected: {member.name}")
                 if sys.version_info >= (3, 12):
                     try:
-                        tar.extractall(path=target_dir, filter="data")
+                        tar.extractall(path=lp, filter="data")
                     except TypeError:
-                        tar.extractall(path=target_dir)
+                        tar.extractall(path=lp)
                 else:
-                    tar.extractall(path=target_dir)
+                    tar.extractall(path=lp)
+
+            remove_folder_red_styling(lp)
+            dest_target = lp
+
+        elif item_type == "folder":
+            # Backward compatibility for single-file folder containers
+            lp.unlink()
+            dest_target = lp
+            dest_target.mkdir(parents=True, exist_ok=True)
+            tar_buf = io.BytesIO(payload)
+            with tarfile.open(fileobj=tar_buf, mode="r:gz") as tar:
+                for member in tar.getmembers():
+                    member_path = (dest_target / member.name).resolve()
+                    if not str(member_path).startswith(str(dest_target)):
+                        raise SecurityError(f"Malicious archive member path detected: {member.name}")
+                if sys.version_info >= (3, 12):
+                    try:
+                        tar.extractall(path=dest_target, filter="data")
+                    except TypeError:
+                        tar.extractall(path=dest_target)
+                else:
+                    tar.extractall(path=dest_target)
+            remove_folder_red_styling(dest_target)
+
         else:
-            # Overwrite or write restored file
+            # File restore
+            dest_target = lp
             dest_target.write_bytes(payload)
-            if dest_target != lp and lp.exists():
-                lp.unlink()
+            if not IS_WINDOWS:
+                try:
+                    subprocess.run(["gio", "set", "-t", "unset", str(dest_target), "metadata::emblems"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except Exception:
+                    pass
 
         # Update registry
         data = self._load_raw()
@@ -543,6 +759,7 @@ class AppLockWatcher(threading.Thread):
         self._running = False
         self._last_active_window_id: Optional[str] = None
         self._authenticating_lock = threading.Lock()
+        self._intercepted_windows: Set[str] = set()
 
     def start_watcher(self) -> None:
         if not self._running:
@@ -586,7 +803,7 @@ class AppLockWatcher(threading.Thread):
             if not win_id_hex or win_id_hex == "0x0":
                 return
 
-            if win_id_hex == self._last_active_window_id:
+            if win_id_hex == self._last_active_window_id or win_id_hex in self._intercepted_windows:
                 return
 
             # Query WM_CLASS
@@ -619,6 +836,10 @@ class AppLockWatcher(threading.Thread):
             if self.lock_manager.is_app_session_unlocked(app_key):
                 self._last_active_window_id = win_id_hex
                 return
+
+            # Mark window as intercepted to prevent duplicate minimize loops
+            self._intercepted_windows.add(win_id_hex)
+            self._last_active_window_id = win_id_hex
 
             # App is locked! Immediately minimize the window to protect privacy
             print(f"[AppLockWatcher] Intercepted locked app '{app_name}' (Window {win_id_hex}). Minimizing...")
@@ -706,7 +927,7 @@ class AppLockWatcher(threading.Thread):
         try:
             app_name = app.get("name", "Application")
             app_key = app.get("key", "")
-            print(f"[AppLockWatcher] Launching Face ID shield for '{app_name}'...")
+            print(f"[AppLockWatcher] Launching Face ID verification for '{app_name}'...")
 
             main_py = Path(__file__).resolve().parent.parent / "main.py"
             bin_path = shutil.which("blink")
@@ -715,29 +936,22 @@ class AppLockWatcher(threading.Thread):
             else:
                 cmd = [sys.executable, str(main_py), "shield", "--app", app_key, "--win-id", win_id_hex]
 
-            res = subprocess.run(cmd)
+            env = os.environ.copy()
+            if "DISPLAY" not in env:
+                env["DISPLAY"] = ":0"
+            res = subprocess.run(cmd, env=env)
             if res.returncode == 0:
-                print(f"[AppLockWatcher] Biometric unlock confirmed for '{app_name}'. Restoring window.")
+                print(f"[AppLockWatcher] Biometric unlock confirmed for '{app_name}'. Restoring window {win_id_hex}.")
                 self.lock_manager.grant_app_session_unlock(app_key)
                 self._last_active_window_id = win_id_hex
-                # Restore and raise window
-                try:
-                    import ctypes
-                    x11 = ctypes.cdll.LoadLibrary("libX11.so.6")
-                    x11.XOpenDisplay.restype = ctypes.c_void_p
-                    disp = x11.XOpenDisplay(None)
-                    if disp:
-                        win_num = int(win_id_hex, 16)
-                        x11.XMapWindow(ctypes.c_void_p(disp), ctypes.c_ulong(win_num))
-                        x11.XRaiseWindow(ctypes.c_void_p(disp), ctypes.c_ulong(win_num))
-                        x11.XFlush(ctypes.c_void_p(disp))
-                        x11.XCloseDisplay(ctypes.c_void_p(disp))
-                except Exception:
-                    pass
+                unminimize_x11_window(win_id_hex)
             else:
                 print(f"[AppLockWatcher] Authentication cancelled or denied for '{app_name}'. Window remains minimized.")
         finally:
             self._authenticating_lock.release()
+            # Allow interacting with window
+            time.sleep(1.0)
+            self._intercepted_windows.discard(win_id_hex)
 
     def _authenticate_app_unlock_win(self, app: Dict[str, Any], hwnd: int) -> None:
         if not self._authenticating_lock.acquire(blocking=False):

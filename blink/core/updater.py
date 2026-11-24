@@ -112,6 +112,37 @@ def check_for_updates() -> Dict[str, Any]:
                 deb_filename = asset.get("name")
                 break
 
+    # If still no .deb on latest release, check recent releases for the latest Linux release
+    if not deb_url and not IS_WINDOWS:
+        try:
+            req_all = urllib.request.Request(
+                f"https://api.github.com/repos/{GITHUB_REPO}/releases",
+                headers={
+                    "User-Agent": f"Blink-Updater/{CURRENT_VERSION} (Linux; x86_64)",
+                    "Accept": "application/vnd.github.v3+json",
+                }
+            )
+            with urllib.request.urlopen(req_all, timeout=10) as resp_all:
+                all_releases = json.loads(resp_all.read().decode("utf-8"))
+                for rel in all_releases:
+                    for a in rel.get("assets", []):
+                        aname = a.get("name", "")
+                        if aname.endswith(".deb"):
+                            deb_url = a.get("browser_download_url")
+                            deb_size = a.get("size", 0)
+                            deb_filename = aname
+                            tag_name = rel.get("tag_name", "").strip()
+                            latest_version = tag_name.lstrip("vV")
+                            release_name = rel.get("name") or f"Blink {tag_name}"
+                            changelog = rel.get("body", "").strip()
+                            published_at = rel.get("published_at", "")
+                            html_url = rel.get("html_url", html_url)
+                            break
+                    if deb_url:
+                        break
+        except Exception:
+            pass
+
     # Locate .exe asset for Windows
     exe_url = None
     exe_size = 0

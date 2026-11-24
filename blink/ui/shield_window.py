@@ -21,7 +21,8 @@ from blink.vision.camera import CameraManager
 from blink.vision.detector import FaceDetector
 from blink.vision.aligner import FaceAligner
 from blink.vision.embedder import ArcFaceEmbedder
-from blink.vision.liveness import LivenessAnalyzer, LivenessDecisionKind
+from blink.liveness.analyzer import LivenessAnalyzer
+from blink.liveness.cues import LivenessDecisionKind
 
 if not IS_WINDOWS:
     import cairo
@@ -120,6 +121,7 @@ if not IS_WINDOWS:
             self.on_cancel = on_cancel
 
             self.authenticated = False
+            self.failure_count = 0
             self._camera_running = False
             self._anim_running = True
             self.anim_tick = 0.0
@@ -380,12 +382,12 @@ if not IS_WINDOWS:
             active_identities = [i for i in identities if i.get("is_enabled", True)]
 
             if not active_identities:
-                GLib.idle_add(self._trigger_failure, "No Face Profiles Enrolled")
+                GLib.idle_add(self._trigger_failure, "No Face Profiles Enrolled", True)
                 return
 
             cam = CameraManager()
             if not cam.start(device_index=settings.camera_index):
-                GLib.idle_add(self._trigger_failure, "Camera Not Available")
+                GLib.idle_add(self._trigger_failure, "Camera Not Available", True)
                 return
 
             self._camera_running = True
@@ -394,42 +396,59 @@ if not IS_WINDOWS:
             embedder = ArcFaceEmbedder()
             liveness = LivenessAnalyzer()
 
-            t0 = time.time()
-            timeout = 4.0
             matched_user = None
 
             try:
-                while self._camera_running and (time.time() - t0) < timeout:
-                    res = cam.get_latest_frame()
-                    if res is None:
-                        time.sleep(0.015)
-                        continue
+                # We attempt scanning up to 2-3 cycles before forcing passcode entry
+                # Cycle 1: ~3.0s scan. If not recognized, shake and retry.
+                # Cycle 2: ~3.0s scan. If still not recognized, expose password entry.
+                max_cycles = 2
+                for cycle in range(max_cycles):
+                    if not self._camera_running:
+                        break
 
-                    _, frame = res
-                    faces = detector.detect_faces(frame)
-                    if faces:
-                        dominant = FaceDetector.select_dominant_face(faces, frame_width=frame.shape[1])
-                        if dominant is not None:
-                            aligned = aligner.align(dominant, frame)
-                            if aligned is not None:
-                                is_live = not settings.liveness_checks_enabled
-                                if settings.liveness_checks_enabled:
-                                    fx, fy, fw, fh = dominant.bbox
-                                    crop = frame[max(0, fy):min(frame.shape[0], fy + fh), max(0, fx):min(frame.shape[1], fx + fw)]
-                                    dec = liveness.observe(frame, dominant, crop)
-                                    if dec.kind == LivenessDecisionKind.CONFIRMED:
-                                        is_live = True
-                                    elif dec.kind == LivenessDecisionKind.DENIED:
+                    t0 = time.time()
+                    cycle_timeout = 3.0
+                    while self._camera_running and (time.time() - t0) < cycle_timeout:
+                        res = cam.get_latest_frame()
+                        if res is None:
+                            time.sleep(0.015)
+                            continue
+
+                        _, frame = res
+                        faces = detector.detect_faces(frame)
+                        if faces:
+                            dominant = FaceDetector.select_dominant_face(faces, frame_width=frame.shape[1])
+                            if dominant is not None:
+                                aligned = aligner.align(dominant, frame)
+                                if aligned is not None:
+                                    is_live = not settings.liveness_checks_enabled
+                                    if settings.liveness_checks_enabled:
+                                        fx, fy, fw, fh = dominant.bbox
+                                        crop = frame[max(0, fy):min(frame.shape[0], fy + fh), max(0, fx):min(frame.shape[1], fx + fw)]
+                                        dec = liveness.observe(frame, dominant, crop)
+                                        if dec.kind == LivenessDecisionKind.CONFIRMED:
+                                            is_live = True
+                                        elif dec.kind == LivenessDecisionKind.DENIED:
+                                            break
+
+                                    emb = embedder.compute_embedding(aligned, flip_augment=True)
+                                    scored = embedder.score_identities(emb, active_identities)
+                                    matched = embedder.best_match(scored, settings.match_threshold)
+                                    if matched and is_live:
+                                        matched_user = matched[0]["name"]
                                         break
+                        time.sleep(0.016)
 
-                                emb = embedder.compute_embedding(aligned, flip_augment=True)
-                                scored = embedder.score_identities(emb, active_identities)
-                                matched = embedder.best_match(scored, settings.match_threshold)
-                                if matched and is_live:
-                                    matched_user = matched[0]["name"]
-                                    break
-                    time.sleep(0.016)
+                    if matched_user:
+                        break
 
+                    self.failure_count += 1
+                    if cycle < max_cycles - 1 and self._camera_running:
+                        GLib.idle_add(self._trigger_retry_feedback, f"Face not recognized (Attempt {cycle+1}/{max_cycles})")
+                        time.sleep(1.0)
+                    else:
+                        break
             finally:
                 cam.stop()
                 self._camera_running = False
@@ -437,7 +456,19 @@ if not IS_WINDOWS:
             if matched_user:
                 GLib.idle_add(self._trigger_success, f"Verified as {matched_user}")
             else:
-                GLib.idle_add(self._trigger_failure, "Face Not Recognized")
+                GLib.idle_add(self._trigger_failure, "Face ID not recognized. Enter password.", True)
+
+        def _trigger_retry_feedback(self, text: str) -> None:
+            self.anim_state = 2
+            self.failure_idx = 0
+            self.lbl_status.set_markup(f"<span font_desc='Plus Jakarta Sans 12' color='#FF9F0A'>{text}</span>")
+
+            def _reset_to_idle():
+                if self._camera_running and self.anim_state == 2:
+                    self.anim_state = 0
+                    self.lbl_status.set_markup("<span font_desc='Plus Jakarta Sans Medium 12' color='#98989D'>Looking for face...</span>")
+
+            GLib.timeout_add(850, _reset_to_idle)
 
         def _trigger_success(self, text: str) -> None:
             self.authenticated = True
@@ -453,12 +484,12 @@ if not IS_WINDOWS:
 
             GLib.timeout_add(450, _finish)
 
-        def _trigger_failure(self, reason: str) -> None:
+        def _trigger_failure(self, reason: str, show_passcode: bool = True) -> None:
             self.anim_state = 2
             self.failure_idx = 0
             self.lbl_status.set_markup(f"<span font_desc='Plus Jakarta Sans 12' color='#FF453A'>{reason}</span>")
-            # Automatically expose passcode entry for seamless fallback
-            self._show_passcode_view()
+            if show_passcode:
+                self._show_passcode_view()
 
         def _show_passcode_view(self) -> None:
             self.action_box.hide()
@@ -474,9 +505,23 @@ if not IS_WINDOWS:
             if not pwd:
                 return
 
-            if SecureCredentialManager.verify_password(pwd):
+            is_valid = SecureCredentialManager.verify_password(pwd)
+            if not is_valid:
+                try:
+                    import pam
+                    p = pam.pam()
+                    import getpass
+                    user = getpass.getuser()
+                    if p.authenticate(user, pwd):
+                        is_valid = True
+                except Exception:
+                    pass
+
+            if is_valid:
                 self._trigger_success("Password Authenticated")
             else:
+                self.anim_state = 2
+                self.failure_idx = 0
                 self.lbl_status.set_markup("<span font_desc='Plus Jakarta Sans 12' color='#FF453A'>Incorrect Password</span>")
                 self.pwd_entry.set_text("")
                 self.pwd_entry.grab_focus()

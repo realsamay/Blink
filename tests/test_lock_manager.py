@@ -58,8 +58,8 @@ class TestBlinkLockManager(unittest.TestCase):
         record = self.mgr.lock_path(test_folder)
         locked_path = Path(record["locked_path"])
         self.assertTrue(locked_path.exists())
-        self.assertTrue(locked_path.is_file(), "Locked folder container must be an encrypted file!")
-        self.assertFalse(locked_path.is_dir(), "Original directory must be replaced!")
+        self.assertTrue(locked_path.is_dir(), "Locked folder must remain an in-place directory!")
+        self.assertTrue((locked_path / ".blink_payload.enc").exists(), "Payload container must exist inside folder!")
         self.assertTrue(self.mgr.is_path_locked(locked_path))
 
         # 3. Unlock the folder

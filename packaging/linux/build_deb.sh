@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build/deb"
 DIST_DIR="${PROJECT_ROOT}/dist"
-VERSION="2.2.3"
+VERSION="2.2.5"
 PKG_NAME="blink_${VERSION}_amd64"
 STAGE_DIR="${BUILD_DIR}/${PKG_NAME}"
 
@@ -145,7 +145,7 @@ cat << 'EOF' > "${STAGE_DIR}/usr/share/mime/packages/blink-lock.xml"
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
     <mime-type type="application/x-blink-lock">
         <comment>Blink Protected Container</comment>
-        <magic priority="95">
+        <magic priority="100">
             <match type="string" offset="0" value="BLINKLOCK"/>
         </magic>
         <glob pattern="*.blinklock"/>

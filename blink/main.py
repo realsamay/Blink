@@ -225,19 +225,8 @@ def _unminimize_window(win_id: Optional[str]) -> None:
         except Exception:
             pass
     else:
-        try:
-            import ctypes
-            x11 = ctypes.cdll.LoadLibrary("libX11.so.6")
-            x11.XOpenDisplay.restype = ctypes.c_void_p
-            disp = x11.XOpenDisplay(None)
-            if disp:
-                win_num = int(win_id, 16) if win_id.startswith("0x") else int(win_id)
-                x11.XMapWindow(ctypes.c_void_p(disp), ctypes.c_ulong(win_num))
-                x11.XRaiseWindow(ctypes.c_void_p(disp), ctypes.c_ulong(win_num))
-                x11.XFlush(ctypes.c_void_p(disp))
-                x11.XCloseDisplay(ctypes.c_void_p(disp))
-        except Exception:
-            pass
+        from blink.core.lock_manager import unminimize_x11_window
+        unminimize_x11_window(win_id)
 
 
 def run_shield_command(
