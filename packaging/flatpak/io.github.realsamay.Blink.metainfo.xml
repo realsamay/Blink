@@ -44,6 +44,11 @@
     <keyword>lockscreen</keyword>
   </keywords>
   <releases>
+    <release version="2.2.6" date="2026-11-24">
+      <description>
+        <p>Test update release to verify the in-app automated update fetching and installation pipeline.</p>
+      </description>
+    </release>
     <release version="2.2.5" date="2026-11-24">
       <description>
         <p>In-place folder and file locking with dynamic red folder indicator and lock emblems, fixed locked app launch and unminimization, multi-cycle Face ID retry with automated password fallback modal.</p>
