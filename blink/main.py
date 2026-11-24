@@ -235,7 +235,6 @@ def run_shield_command(
     win_id: Optional[str] = None,
 ) -> None:
     from blink.core.lock_manager import BlinkLockManager
-    from blink.ui.shield_window import BlinkShieldWindow
     from blink.core.app_discovery import get_app_info
 
     mgr = BlinkLockManager.get_instance()
@@ -252,12 +251,23 @@ def run_shield_command(
         app_icon = info.get("icon")
 
         print(f"[Blink Shield] Presenting Face ID verification for '{app_name}'...")
-        authenticated = BlinkShieldWindow.launch(
-            target_type="app",
-            target_name=app_name,
-            target_key=clean_key,
-            target_icon=app_icon,
-        )
+        if not IS_WINDOWS:
+            overlay = NotchOverlayWindow()
+            overlay._is_desktop_preview = True
+            coordinator = FaceUnlockCoordinator(overlay=overlay)
+            authenticated = coordinator.authenticate_with_fallback(
+                target_name=app_name,
+                target_icon=app_icon,
+                max_attempts=2
+            )
+        else:
+            from blink.ui.shield_window import BlinkShieldWindow
+            authenticated = BlinkShieldWindow.launch(
+                target_type="app",
+                target_name=app_name,
+                target_key=clean_key,
+                target_icon=app_icon,
+            )
 
         if authenticated:
             print(f"[Blink Shield] Access granted for '{app_name}'.")
@@ -283,11 +293,21 @@ def run_shield_command(
             item_type = "folder" if p.is_dir() else "file"
 
         print(f"[Blink Shield] Presenting Face ID verification for {item_type} '{item_name}'...")
-        authenticated = BlinkShieldWindow.launch(
-            target_type=item_type,
-            target_name=item_name,
-            target_key=str(p),
-        )
+        if not IS_WINDOWS:
+            overlay = NotchOverlayWindow()
+            overlay._is_desktop_preview = True
+            coordinator = FaceUnlockCoordinator(overlay=overlay)
+            authenticated = coordinator.authenticate_with_fallback(
+                target_name=item_name,
+                max_attempts=2
+            )
+        else:
+            from blink.ui.shield_window import BlinkShieldWindow
+            authenticated = BlinkShieldWindow.launch(
+                target_type=item_type,
+                target_name=item_name,
+                target_key=str(p),
+            )
 
         if authenticated:
             try:

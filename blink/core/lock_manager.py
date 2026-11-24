@@ -774,7 +774,7 @@ class AppLockWatcher(threading.Thread):
         print("[AppLockWatcher] Active window interception service started.")
         while self._running:
             try:
-                time.sleep(0.20)
+                time.sleep(0.06)
                 if not self.lock_manager.is_enabled():
                     continue
 
@@ -927,20 +927,31 @@ class AppLockWatcher(threading.Thread):
         try:
             app_name = app.get("name", "Application")
             app_key = app.get("key", "")
+            app_icon = app.get("icon")
             print(f"[AppLockWatcher] Launching Face ID verification for '{app_name}'...")
 
-            main_py = Path(__file__).resolve().parent.parent / "main.py"
-            bin_path = shutil.which("blink")
-            if bin_path and os.path.exists(bin_path):
-                cmd = [bin_path, "shield", "--app", app_key, "--win-id", win_id_hex]
+            verified = False
+            if self.coordinator and hasattr(self.coordinator, "authenticate_with_fallback"):
+                verified = self.coordinator.authenticate_with_fallback(
+                    target_name=app_name,
+                    target_icon=app_icon,
+                    max_attempts=2
+                )
             else:
-                cmd = [sys.executable, str(main_py), "shield", "--app", app_key, "--win-id", win_id_hex]
+                main_py = Path(__file__).resolve().parent.parent / "main.py"
+                bin_path = shutil.which("blink")
+                if bin_path and os.path.exists(bin_path):
+                    cmd = [bin_path, "shield", "--app", app_key, "--win-id", win_id_hex]
+                else:
+                    cmd = [sys.executable, str(main_py), "shield", "--app", app_key, "--win-id", win_id_hex]
 
-            env = os.environ.copy()
-            if "DISPLAY" not in env:
-                env["DISPLAY"] = ":0"
-            res = subprocess.run(cmd, env=env)
-            if res.returncode == 0:
+                env = os.environ.copy()
+                if "DISPLAY" not in env:
+                    env["DISPLAY"] = ":0"
+                res = subprocess.run(cmd, env=env)
+                verified = (res.returncode == 0)
+
+            if verified:
                 print(f"[AppLockWatcher] Biometric unlock confirmed for '{app_name}'. Restoring window {win_id_hex}.")
                 self.lock_manager.grant_app_session_unlock(app_key)
                 self._last_active_window_id = win_id_hex
@@ -950,7 +961,7 @@ class AppLockWatcher(threading.Thread):
         finally:
             self._authenticating_lock.release()
             # Allow interacting with window
-            time.sleep(1.0)
+            time.sleep(0.5)
             self._intercepted_windows.discard(win_id_hex)
 
     def _authenticate_app_unlock_win(self, app: Dict[str, Any], hwnd: int) -> None:

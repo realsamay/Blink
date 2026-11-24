@@ -890,6 +890,9 @@ class SettingsWindow(Gtk.Window):
         self.stack.set_visible_child_name("face_id")
         self.sidebar_list.select_row(self.nav_rows["face_id"])
 
+        self._last_vault_store_mtime = 0.0
+        GLib.timeout_add(1000, self._check_vault_auto_sync)
+
         self.connect("realize", self._on_realize)
         self.connect("destroy", self._on_destroy)
 
@@ -1084,6 +1087,10 @@ class SettingsWindow(Gtk.Window):
         self._active_page = page_id
         self.stack.set_visible_child_name(page_id)
         self.headerbar.props.title = row._title_text
+
+        if page_id == "blink_lock":
+            self._refresh_vault_rows()
+            self._update_app_summary_count()
 
         if page_id in ("face_id", "camera", "diagnostics"):
             self._start_vision_pipeline()
@@ -1684,6 +1691,20 @@ class SettingsWindow(Gtk.Window):
     def _update_app_summary_count(self) -> None:
         locked_cnt = len(self.lock_mgr.get_locked_apps())
         self.lbl_app_summary.set_text(f"{locked_cnt} Guarded")
+
+    def _check_vault_auto_sync(self) -> bool:
+        try:
+            from blink.core.lock_manager import LOCK_STORE_FILE
+            if LOCK_STORE_FILE.exists():
+                mtime = LOCK_STORE_FILE.stat().st_mtime
+                if mtime != getattr(self, "_last_vault_store_mtime", 0.0):
+                    self._last_vault_store_mtime = mtime
+                    if getattr(self, "_active_page", None) == "blink_lock":
+                        self._refresh_vault_rows()
+                        self._update_app_summary_count()
+        except Exception:
+            pass
+        return True
 
     def _refresh_vault_rows(self) -> None:
         for child in self.group_vault.get_children():

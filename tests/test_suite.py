@@ -218,5 +218,53 @@ class TestCoordinatorSettingsSync(unittest.TestCase):
         self.assertFalse(coord.camera.is_running)
 
 
+class TestBlinkPasswordFallback(unittest.TestCase):
+    def test_password_dialog_verification(self):
+        from blink.ui.password_dialog import LinuxBlinkPasswordDialog
+        from blink.system.platform_info import IS_WINDOWS
+        if IS_WINDOWS:
+            return
+        dialog = LinuxBlinkPasswordDialog(target_name="TestApp", standalone_loop=False)
+        dialog.pwd_entry.set_text("wrong_pwd")
+        dialog._on_submit(None)
+        self.assertFalse(dialog.authenticated)
+
+        dialog.pwd_entry.set_text("samay09")
+        dialog._on_submit(None)
+        self.assertTrue(dialog.authenticated)
+
+    def test_authenticate_with_fallback_triggers_password_on_failure(self):
+        from blink.core.coordinator import FaceUnlockCoordinator
+        coord = FaceUnlockCoordinator()
+        # Mock authenticate_face to always return False
+        coord.authenticate_face = lambda purpose, timeout: False
+
+        # Mock BlinkPasswordDialog.prompt to return True
+        from unittest.mock import patch
+        with patch("blink.ui.password_dialog.BlinkPasswordDialog.prompt", return_value=True) as mock_prompt:
+            res = coord.authenticate_with_fallback("TestApp", max_attempts=2)
+            self.assertTrue(res)
+            mock_prompt.assert_called_once_with(target_name="TestApp", target_icon=None)
+
+
+class TestAppLockWatcherSpeed(unittest.TestCase):
+    def test_in_daemon_coordinator_delegation(self):
+        from blink.core.lock_manager import AppLockWatcher, BlinkLockManager
+        from unittest.mock import MagicMock, patch
+        mock_coord = MagicMock()
+        mock_coord.authenticate_with_fallback.return_value = True
+
+        watcher = AppLockWatcher(coordinator=mock_coord, lock_manager=BlinkLockManager.get_instance())
+        app = {"name": "Test Terminal", "key": "gnome-terminal"}
+        with patch("blink.core.lock_manager.unminimize_x11_window") as mock_unmin:
+            watcher._authenticate_app_unlock(app, "0x1234567")
+            mock_coord.authenticate_with_fallback.assert_called_once_with(
+                target_name="Test Terminal",
+                target_icon=None,
+                max_attempts=2
+            )
+            mock_unmin.assert_called_once_with("0x1234567")
+
+
 if __name__ == "__main__":
     unittest.main()

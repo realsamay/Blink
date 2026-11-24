@@ -25,8 +25,13 @@ if IS_WINDOWS:
             except Exception:
                 return False
     GLib = WinGLib()
+    Gtk = None
+    Gdk = None
 else:
-    from gi.repository import GLib
+    import gi
+    gi.require_version("Gtk", "3.0")
+    gi.require_version("Gdk", "3.0")
+    from gi.repository import GLib, Gtk, Gdk
 
 from blink.core.config import BlinkSettings
 from blink.core.crypto import SecureCredentialManager, SecureFaceStore
@@ -81,7 +86,19 @@ class FaceUnlockCoordinator:
                     self.overlay.clean_close()
                 except Exception:
                     pass
-            self.overlay = NotchOverlayWindow(on_retry_clicked=self.start_scan_cycle)
+            if IS_WINDOWS or threading.current_thread() == threading.main_thread():
+                self.overlay = NotchOverlayWindow(on_retry_clicked=self.start_scan_cycle)
+            else:
+                event = threading.Event()
+                def _create():
+                    try:
+                        self.overlay = NotchOverlayWindow(on_retry_clicked=self.start_scan_cycle)
+                    except Exception as e:
+                        print(f"[Coordinator] Error creating NotchOverlayWindow: {e}")
+                    finally:
+                        event.set()
+                GLib.idle_add(_create)
+                event.wait(timeout=1.5)
         return self.overlay
 
     def stop_all_active(self) -> None:
@@ -138,15 +155,16 @@ class FaceUnlockCoordinator:
         liveness_confirmed = not self.settings.liveness_checks_enabled
 
         def _pump_events():
-            if not IS_WINDOWS and Gtk is not None:
-                while Gtk.events_pending():
-                    Gtk.main_iteration_do(False)
-            elif IS_WINDOWS and self.overlay and hasattr(self.overlay, "root"):
-                try:
-                    self.overlay.root.update_idletasks()
-                    self.overlay.root.update()
-                except Exception:
-                    pass
+            if threading.current_thread() == threading.main_thread():
+                if not IS_WINDOWS and Gtk is not None:
+                    while Gtk.events_pending():
+                        Gtk.main_iteration_do(False)
+                elif IS_WINDOWS and self.overlay and hasattr(self.overlay, "root"):
+                    try:
+                        self.overlay.root.update_idletasks()
+                        self.overlay.root.update()
+                    except Exception:
+                        pass
 
         try:
             while (time.time() - t0) < timeout:
@@ -231,6 +249,31 @@ class FaceUnlockCoordinator:
             _pump_events()
 
         return verified
+
+    def authenticate_with_fallback(
+        self,
+        target_name: str = "Protected Item",
+        target_icon: Optional[str] = None,
+        max_attempts: int = 2
+    ) -> bool:
+        """
+        Attempts Face ID with Top Notch Dynamic Island overlay under the camera.
+        If Face ID fails after max_attempts, opens the clean Blink UI password fallback dialog.
+        """
+        print(f"[Coordinator] Biometric authentication requested for '{target_name}' (max face attempts: {max_attempts})...")
+
+        for attempt in range(1, max_attempts + 1):
+            print(f"[Coordinator] Face ID attempt {attempt}/{max_attempts} for '{target_name}'...")
+            verified = self.authenticate_face(purpose=target_name, timeout=3.0)
+            if verified:
+                print(f"[Coordinator] Face ID verified on attempt {attempt} for '{target_name}'.")
+                return True
+            if attempt < max_attempts:
+                time.sleep(0.3)
+
+        print(f"[Coordinator] Face ID verification attempts exhausted for '{target_name}'. Opening password fallback modal...")
+        from blink.ui.password_dialog import BlinkPasswordDialog
+        return BlinkPasswordDialog.prompt(target_name=target_name, target_icon=target_icon)
 
     def _handle_locked(self) -> None:
         self.settings = BlinkSettings.load()
