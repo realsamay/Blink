@@ -31,9 +31,6 @@ else:
 
 from blink.core.config import BlinkSettings, CONFIG_DIR
 from blink.core.crypto import SecureCredentialManager, SecureFaceStore
-from blink.core.coordinator import FaceUnlockCoordinator
-from blink.ui.notch_overlay import NotchOverlayWindow
-from blink.system.keystroke_injector import KeystrokeInjector
 
 
 def acquire_single_instance_lock():
@@ -61,6 +58,8 @@ def acquire_single_instance_lock():
 
 
 def run_daemon():
+    from blink.core.coordinator import FaceUnlockCoordinator
+    from blink.ui.notch_overlay import NotchOverlayWindow
     lock = acquire_single_instance_lock()
     os_name = "Windows" if IS_WINDOWS else "Linux"
     print(f"[Blink] Starting Blink daemon for {os_name}...")
@@ -167,6 +166,7 @@ def run_terminal_settings():
 
 
 def run_status():
+    from blink.system.keystroke_injector import KeystrokeInjector
     settings = BlinkSettings.load()
     os_name = "WINDOWS" if IS_WINDOWS else "LINUX"
     print("=" * 50)
@@ -535,6 +535,8 @@ X-GNOME-Autostart-enabled=true
 
 
 def run_test_scan():
+    from blink.core.coordinator import FaceUnlockCoordinator
+    from blink.ui.notch_overlay import NotchOverlayWindow
     print("[Blink] Previewing Face ID squarish card animation on desktop...")
     overlay = NotchOverlayWindow()
     overlay._is_desktop_preview = True

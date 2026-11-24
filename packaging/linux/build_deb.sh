@@ -37,7 +37,7 @@ cat << 'EOF' > "${STAGE_DIR}/usr/bin/blink"
 export PYTHONUNBUFFERED=1
 export PYTHONPATH="/usr/lib/blink:${PYTHONPATH}"
 
-if /usr/bin/python3 -c "import cv2, gi" 2>/dev/null; then
+if /usr/bin/python3 -c "import cv2, gi, onnxruntime" 2>/dev/null; then
     PY_BIN="/usr/bin/python3"
 elif [ -f "/usr/lib/blink/.venv/bin/python" ]; then
     PY_BIN="/usr/lib/blink/.venv/bin/python"
