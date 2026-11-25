@@ -44,6 +44,11 @@
     <keyword>lockscreen</keyword>
   </keywords>
   <releases>
+    <release version="2.2.10" date="2026-11-25">
+      <description>
+        <p>Exact Figma 200x180 password entry pill layout with centered 170x38 input box, crisp placeholder, and persistent 0.7 opacity cross button at (163, 23); fix X11 64-bit display pointer segfault in unminimize_x11_window so unlocked apps pop directly into foreground over the current window; and eliminate password-submit unlock latency via pre-warmed key cache and async metadata/notification dispatch.</p>
+      </description>
+    </release>
     <release version="2.2.9" date="2026-11-25">
       <description>
         <p>Smooth in-pill expansion from the Face ID scanning animation into the 200x180 Figma password entry card when face detection fails (with click-to-retry padlock), instant foreground window raise/focus on unlock, and smart Blink Lock features (1-click Quick Re-Lock history, drag-and-drop vault encryption, auto re-lock on screen lock, and instant panic lock).</p>

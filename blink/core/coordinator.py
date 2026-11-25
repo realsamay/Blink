@@ -314,12 +314,6 @@ class FaceUnlockCoordinator:
                     target_name=target_name,
                 )
                 if outcome == "verified":
-                    if threading.current_thread() == threading.main_thread() and Gtk is not None:
-                        t_end = time.time() + 0.08
-                        while time.time() < t_end:
-                            while Gtk.events_pending():
-                                Gtk.main_iteration_do(False)
-                            time.sleep(0.012)
                     return True
                 elif outcome == "retry_face":
                     continue

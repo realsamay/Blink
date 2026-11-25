@@ -195,7 +195,7 @@ def run_status():
 def notify(title: str, message: str) -> None:
     if not IS_WINDOWS:
         try:
-            subprocess.run(["notify-send", "-i", "blink", title, message], check=False)
+            subprocess.Popen(["notify-send", "-i", "blink", title, message], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
             pass
 

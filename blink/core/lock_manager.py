@@ -40,11 +40,12 @@ def set_folder_red_styling(folder_path: Path) -> None:
         return
     path_str = str(folder_path)
     try:
-        subprocess.run(["gio", "set", "-t", "string", path_str, "metadata::custom-icon-name", "folder-red"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(["gio", "set", "-t", "string", path_str, "metadata::nautilus-icon-name", "folder-red"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(["gio", "set", "-t", "string", path_str, "metadata::folder-color", "red"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(["gio", "set", "-t", "stringv", path_str, "metadata::emblems", "emblem-locked"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
+        cmds = [
+            ["gio", "set", "-t", "string", path_str, "metadata::custom-icon-name", "folder-red"],
+            ["gio", "set", "-t", "string", path_str, "metadata::nautilus-icon-name", "folder-red"],
+            ["gio", "set", "-t", "string", path_str, "metadata::folder-color", "red"],
+            ["gio", "set", "-t", "stringv", path_str, "metadata::emblems", "emblem-locked"],
+        ]
         red_icon_candidates = [
             Path.home() / ".local/share/icons/WhiteSur-dark/places/scalable/folder-red.svg",
             Path.home() / ".local/share/icons/WhiteSur/places/scalable/folder-red.svg",
@@ -53,8 +54,10 @@ def set_folder_red_styling(folder_path: Path) -> None:
         ]
         for cand in red_icon_candidates:
             if cand.exists():
-                subprocess.run(["gio", "set", "-t", "string", path_str, "metadata::custom-icon", cand.as_uri()], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                cmds.append(["gio", "set", "-t", "string", path_str, "metadata::custom-icon", cand.as_uri()])
                 break
+        for c in cmds:
+            subprocess.Popen(c, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as e:
         print(f"[BlinkLock] Note: could not set folder red styling: {e}")
 
@@ -64,11 +67,15 @@ def remove_folder_red_styling(folder_path: Path) -> None:
         return
     path_str = str(folder_path)
     try:
-        subprocess.run(["gio", "set", "-t", "unset", path_str, "metadata::custom-icon-name"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(["gio", "set", "-t", "unset", path_str, "metadata::nautilus-icon-name"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(["gio", "set", "-t", "unset", path_str, "metadata::folder-color"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(["gio", "set", "-t", "unset", path_str, "metadata::custom-icon"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(["gio", "set", "-t", "unset", path_str, "metadata::emblems"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        attrs = [
+            "metadata::custom-icon-name",
+            "metadata::nautilus-icon-name",
+            "metadata::folder-color",
+            "metadata::custom-icon",
+            "metadata::emblems",
+        ]
+        for attr in attrs:
+            subprocess.Popen(["gio", "set", "-t", "unset", path_str, attr], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as e:
         print(f"[BlinkLock] Note: could not remove folder red styling: {e}")
 
@@ -103,15 +110,24 @@ def unminimize_x11_window(win_id: str | int) -> bool:
         win_hex = hex(win_num)
 
         x11 = ctypes.cdll.LoadLibrary("libX11.so.6")
+        x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
         x11.XOpenDisplay.restype = ctypes.c_void_p
+        x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
         x11.XDefaultRootWindow.restype = ctypes.c_ulong
+        x11.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
         x11.XInternAtom.restype = ctypes.c_ulong
         x11.XSendEvent.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_long, ctypes.c_void_p]
         x11.XMapWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
         x11.XMapRaised.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
         x11.XRaiseWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
-        x11.XSetInputFocus.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
         x11.XFlush.argtypes = [ctypes.c_void_p]
+        x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+
+        # Guard against BadMatch/BadWindow errors killing daemon process
+        XErrorHandler = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
+        _err_cb = XErrorHandler(lambda d, e: 0)
+        x11.XSetErrorHandler.argtypes = [XErrorHandler]
+        x11.XSetErrorHandler(_err_cb)
 
         disp = x11.XOpenDisplay(None)
         if not disp:
@@ -138,6 +154,7 @@ def unminimize_x11_window(win_id: str | int) -> bool:
             x11.XSendEvent(disp, root, False, mask, ctypes.byref(ev_state))
 
             # 2. Direct map and raise to top of stacking order
+            x11.XMapWindow(disp, win_num)
             x11.XMapRaised(disp, win_num)
             x11.XRaiseWindow(disp, win_num)
 
@@ -153,15 +170,20 @@ def unminimize_x11_window(win_id: str | int) -> bool:
             ev_act.xclient.data[3] = 0
             ev_act.xclient.data[4] = 0
             x11.XSendEvent(disp, root, False, mask, ctypes.byref(ev_act))
-            x11.XSetInputFocus(disp, win_num, 1, 0)
             x11.XFlush(disp)
         finally:
             x11.XCloseDisplay(disp)
 
-        # 4. Also invoke wmctrl if available so Muffin brings it onto current workspace & above active window
+        # 4. Also dispatch non-blocking wmctrl raise/activate so Muffin brings it onto current workspace & above active window
         if shutil.which("wmctrl"):
-            subprocess.run(["wmctrl", "-i", "-R", win_hex], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.35)
-            subprocess.run(["wmctrl", "-i", "-a", win_hex], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.35)
+            try:
+                subprocess.Popen(
+                    ["wmctrl", "-i", "-a", win_hex],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except Exception:
+                pass
 
         return True
     except Exception as e:
@@ -935,13 +957,17 @@ class AppLockWatcher(threading.Thread):
                 # X11 Iconify window
                 import ctypes
                 x11 = ctypes.cdll.LoadLibrary("libX11.so.6")
+                x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
                 x11.XOpenDisplay.restype = ctypes.c_void_p
+                x11.XIconifyWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int]
+                x11.XFlush.argtypes = [ctypes.c_void_p]
+                x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
                 disp = x11.XOpenDisplay(None)
                 if disp:
                     win_num = int(win_id_hex, 16)
-                    x11.XIconifyWindow(ctypes.c_void_p(disp), ctypes.c_ulong(win_num), ctypes.c_int(0))
-                    x11.XFlush(ctypes.c_void_p(disp))
-                    x11.XCloseDisplay(ctypes.c_void_p(disp))
+                    x11.XIconifyWindow(disp, win_num, 0)
+                    x11.XFlush(disp)
+                    x11.XCloseDisplay(disp)
             except Exception:
                 pass
 

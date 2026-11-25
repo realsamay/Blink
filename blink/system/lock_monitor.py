@@ -37,6 +37,11 @@ else:
     try:
         _x11 = ctypes.cdll.LoadLibrary("libX11.so.6")
         _xss = ctypes.cdll.LoadLibrary("libXss.so.1")
+        _x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+        _x11.XOpenDisplay.restype = ctypes.c_void_p
+        _x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+        _x11.XDefaultRootWindow.restype = ctypes.c_ulong
+        _xss.XScreenSaverQueryInfo.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_void_p]
         _x11_dpy = _x11.XOpenDisplay(None)
         _x11_root = _x11.XDefaultRootWindow(_x11_dpy) if _x11_dpy else None
     except Exception:
