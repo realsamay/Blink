@@ -95,17 +95,22 @@ class _XEvent(ctypes.Union):
 
 
 def unminimize_x11_window(win_id: str | int) -> bool:
-    """Restores, unminimizes, and raises an X11 window using standard EWMH protocols."""
+    """Restores, unminimizes, and raises an X11 window over the current active window."""
     if IS_WINDOWS or not win_id:
         return False
     try:
         win_num = int(win_id, 16) if isinstance(win_id, str) and win_id.startswith("0x") else int(win_id)
+        win_hex = hex(win_num)
+
         x11 = ctypes.cdll.LoadLibrary("libX11.so.6")
         x11.XOpenDisplay.restype = ctypes.c_void_p
         x11.XDefaultRootWindow.restype = ctypes.c_ulong
         x11.XInternAtom.restype = ctypes.c_ulong
         x11.XSendEvent.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_long, ctypes.c_void_p]
+        x11.XMapWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
         x11.XMapRaised.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+        x11.XRaiseWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+        x11.XSetInputFocus.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
         x11.XFlush.argtypes = [ctypes.c_void_p]
 
         disp = x11.XOpenDisplay(None)
@@ -116,40 +121,49 @@ def unminimize_x11_window(win_id: str | int) -> bool:
             atom_active = x11.XInternAtom(disp, b"_NET_ACTIVE_WINDOW", False)
             atom_state = x11.XInternAtom(disp, b"_NET_WM_STATE", False)
             atom_hidden = x11.XInternAtom(disp, b"_NET_WM_STATE_HIDDEN", False)
+            atom_demands = x11.XInternAtom(disp, b"_NET_WM_STATE_DEMANDS_ATTENTION", False)
+            mask = 0x00100000 | 0x00020000  # SubstructureRedirectMask | SubstructureNotifyMask
 
-            # 1. Request window manager remove _NET_WM_STATE_HIDDEN
+            # 1. Remove _NET_WM_STATE_HIDDEN and _NET_WM_STATE_DEMANDS_ATTENTION
             ev_state = _XEvent()
-            ev_state.type = 33  # ClientMessage
+            ev_state.type = 33
             ev_state.xclient.window = win_num
             ev_state.xclient.message_type = atom_state
             ev_state.xclient.format = 32
-            ev_state.xclient.data[0] = 0  # 0 = _NET_WM_STATE_REMOVE
+            ev_state.xclient.data[0] = 0  # _NET_WM_STATE_REMOVE
             ev_state.xclient.data[1] = atom_hidden
-            ev_state.xclient.data[2] = 0
-            ev_state.xclient.data[3] = 1  # 1 = application source
+            ev_state.xclient.data[2] = atom_demands
+            ev_state.xclient.data[3] = 2  # pager/user interaction
             ev_state.xclient.data[4] = 0
-            mask = 0x00100000 | 0x00020000  # SubstructureRedirectMask | SubstructureNotifyMask
             x11.XSendEvent(disp, root, False, mask, ctypes.byref(ev_state))
 
-            # 2. Request window manager activate/focus window
+            # 2. Direct map and raise to top of stacking order
+            x11.XMapRaised(disp, win_num)
+            x11.XRaiseWindow(disp, win_num)
+
+            # 3. Request window manager activate/focus window over current window
             ev_act = _XEvent()
-            ev_act.type = 33  # ClientMessage
+            ev_act.type = 33
             ev_act.xclient.window = win_num
             ev_act.xclient.message_type = atom_active
             ev_act.xclient.format = 32
-            ev_act.xclient.data[0] = 2  # 2 = pager / user interaction
-            ev_act.xclient.data[1] = 0  # CurrentTime
+            ev_act.xclient.data[0] = 2  # pager source bypasses focus-stealing prevention
+            ev_act.xclient.data[1] = 0
             ev_act.xclient.data[2] = 0
             ev_act.xclient.data[3] = 0
             ev_act.xclient.data[4] = 0
             x11.XSendEvent(disp, root, False, mask, ctypes.byref(ev_act))
-
-            # 3. Direct map and raise
-            x11.XMapRaised(disp, win_num)
+            x11.XSetInputFocus(disp, win_num, 1, 0)
             x11.XFlush(disp)
-            return True
         finally:
             x11.XCloseDisplay(disp)
+
+        # 4. Also invoke wmctrl if available so Muffin brings it onto current workspace & above active window
+        if shutil.which("wmctrl"):
+            subprocess.run(["wmctrl", "-i", "-R", win_hex], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.35)
+            subprocess.run(["wmctrl", "-i", "-a", win_hex], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.35)
+
+        return True
     except Exception as e:
         print(f"[BlinkLock] Error unminimizing X11 window {win_id}: {e}")
         return False
@@ -226,6 +240,56 @@ class BlinkLockManager:
         data = self._load_raw()
         data["grace_period_seconds"] = max(0, int(seconds))
         self._save_raw(data)
+
+    def get_auto_relock_on_screen_lock(self) -> bool:
+        data = self._load_raw()
+        return bool(data.get("auto_relock_on_screen_lock", False))
+
+    def set_auto_relock_on_screen_lock(self, enabled: bool) -> None:
+        data = self._load_raw()
+        data["auto_relock_on_screen_lock"] = bool(enabled)
+        self._save_raw(data)
+
+    def get_active_app_sessions(self) -> Dict[str, float]:
+        """Returns map of currently unlocked app keys still within their grace window."""
+        grace = self.get_grace_period()
+        if grace <= 0:
+            return {}
+        now = time.time()
+        return {k: ts for k, ts in self._unlocked_app_sessions.items() if (now - ts) < grace}
+
+    def get_recent_unlocked(self) -> List[Dict[str, Any]]:
+        """Returns recently unlocked files/folders that still exist unencrypted on disk."""
+        data = self._load_raw()
+        recents = data.get("recent_unlocked", [])
+        valid = []
+        for r in recents:
+            p = Path(r.get("path", ""))
+            if p.exists() and not self.is_path_locked(p):
+                valid.append(r)
+        return valid
+
+    def dismiss_recent_unlocked(self, target_path: str | Path) -> None:
+        resolved = str(Path(target_path).resolve())
+        data = self._load_raw()
+        data["recent_unlocked"] = [
+            r for r in data.get("recent_unlocked", [])
+            if str(Path(r.get("path", "")).resolve()) != resolved
+        ]
+        self._save_raw(data)
+
+    def relock_recent_items(self) -> int:
+        """Smartly re-encrypts all tracked recently unlocked folders & files in-place."""
+        count = 0
+        for r in self.get_recent_unlocked():
+            p = Path(r.get("path", ""))
+            if p.exists() and not self.is_path_locked(p):
+                try:
+                    self.lock_path(p)
+                    count += 1
+                except Exception as e:
+                    print(f"[BlinkLock] Could not auto re-lock {p}: {e}")
+        return count
 
     # --------------------------------------------------------------------------
     # Application Lock Management
@@ -473,6 +537,11 @@ Terminal=false
         locked = data.get("locked_items", [])
         locked.append(item_record)
         data["locked_items"] = locked
+        # Remove from recent_unlocked since it is now re-locked
+        data["recent_unlocked"] = [
+            r for r in data.get("recent_unlocked", [])
+            if str(Path(r.get("path", "")).resolve()) != str(dest_path)
+        ]
         self._save_raw(data)
 
         print(f"[BlinkLock] Successfully locked {p.name} in-place.")
@@ -568,12 +637,23 @@ Terminal=false
                 except Exception:
                     pass
 
-        # Update registry
+        # Update registry & recent unlocked history for 1-click re-lock
         data = self._load_raw()
         data["locked_items"] = [
             it for it in data.get("locked_items", [])
             if Path(it.get("locked_path", "")).resolve() != lp
         ]
+        recents = [
+            r for r in data.get("recent_unlocked", [])
+            if str(Path(r.get("path", "")).resolve()) != str(dest_target)
+        ]
+        recents.insert(0, {
+            "name": original_name,
+            "path": str(dest_target),
+            "type": item_type,
+            "unlocked_at": time.time(),
+        })
+        data["recent_unlocked"] = recents[:10]
         self._save_raw(data)
 
         print(f"[BlinkLock] Successfully unlocked {lp.name} -> {dest_target}")
@@ -811,9 +891,17 @@ class AppLockWatcher(threading.Thread):
             if "WM_CLASS" not in wm_out:
                 return
 
-            # Extract window class tokens
-            # e.g.: WM_CLASS(STRING) = "google-chrome", "Google-chrome"
+            # Extract window class tokens + process comm name fallback for Snap/Flatpak/Electron apps
             parts = [p.strip().strip('"').lower() for p in wm_out.split("=")[-1].split(",")]
+            try:
+                pid_out = subprocess.check_output(["xprop", "-id", win_id_hex, "_NET_WM_PID"], stderr=subprocess.DEVNULL, timeout=0.10).decode("utf-8")
+                if "=" in pid_out:
+                    pid_str = pid_out.split("=")[-1].strip()
+                    comm_path = Path(f"/proc/{pid_str}/comm")
+                    if comm_path.exists():
+                        parts.append(comm_path.read_text(encoding="utf-8", errors="ignore").strip().lower())
+            except Exception:
+                pass
 
             matched_app = None
             for app in locked_apps:

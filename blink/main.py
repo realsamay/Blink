@@ -204,6 +204,11 @@ def run_lock_command(target_path: str) -> None:
     from blink.core.lock_manager import BlinkLockManager
     mgr = BlinkLockManager.get_instance()
     try:
+        # Smart toggle: if item is already locked, invoke shield unlock instead of failing
+        if mgr.is_path_locked(target_path):
+            print(f"[Blink Lock] '{Path(target_path).name}' is already locked — switching to Face ID unlock.")
+            run_shield_command(target_path=target_path)
+            return
         res = mgr.lock_path(target_path)
         msg = f"Locked: {res['name']} -> {Path(res['locked_path']).name}"
         print(f"[Blink Lock] {msg}")
@@ -275,6 +280,10 @@ def run_shield_command(
         if authenticated:
             print(f"[Blink Shield] Access granted for '{app_name}'.")
             mgr.grant_app_session_unlock(clean_key)
+            if not IS_WINDOWS and "overlay" in locals() and overlay:
+                overlay.clean_close()
+                while Gtk.events_pending():
+                    Gtk.main_iteration_do(False)
             _unminimize_window(win_id)
             sys.exit(0)
         else:
@@ -316,11 +325,20 @@ def run_shield_command(
             try:
                 restored = mgr.unlock_path(p)
                 print(f"[Blink Shield] Decrypted & restored {item_type}: {restored}")
-                notify("Blink Lock", f"Unlocked {item_name}")
                 if not IS_WINDOWS:
-                    subprocess.run(["gio", "open", str(restored)], check=False)
+                    if "overlay" in locals() and overlay:
+                        overlay.clean_close()
+                        while Gtk.events_pending():
+                            Gtk.main_iteration_do(False)
+                    subprocess.Popen(
+                        ["gio", "open", str(restored)],
+                        start_new_session=True,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
                 else:
                     subprocess.run(["explorer.exe", f"/select,{restored}"], check=False)
+                notify("Blink Lock", f"Unlocked {item_name}")
                 sys.exit(0)
             except Exception as e:
                 print(f"[Blink Shield] Error unlocking {p.name}: {e}")

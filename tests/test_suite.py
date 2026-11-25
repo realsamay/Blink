@@ -240,13 +240,52 @@ class TestBlinkPasswordFallback(unittest.TestCase):
         from blink.core.coordinator import FaceUnlockCoordinator
         coord = FaceUnlockCoordinator()
         # Mock authenticate_face to always return False
-        coord.authenticate_face = lambda purpose, timeout: False
+        coord.authenticate_face = lambda purpose, timeout, keep_overlay_on_fail=False: False
 
         from unittest.mock import patch
-        with patch("blink.ui.password_dialog.BlinkPasswordDialog.prompt", return_value=True) as mock_prompt:
+        with patch.object(coord.overlay, "prompt_password", return_value="verified") as mock_prompt:
             res = coord.authenticate_with_fallback("TestApp", max_attempts=2)
             self.assertTrue(res)
-            mock_prompt.assert_called_once_with(target_name="TestApp", target_icon=None)
+            mock_prompt.assert_called_once_with(
+                reason_text="Unable to detect face",
+                target_name="TestApp",
+            )
+
+    def test_notch_overlay_password_expansion_and_verification(self):
+        from blink.system.platform_info import IS_WINDOWS
+        if IS_WINDOWS:
+            return
+        from blink.ui.notch_overlay import LinuxNotchOverlayWindow, OverlayPhase
+        overlay = LinuxNotchOverlayWindow()
+        try:
+            self.assertEqual(overlay.COMPACT_W, 148.0)
+            self.assertEqual(overlay.COMPACT_H, 148.0)
+            self.assertEqual(overlay.COMPACT_RAD, 28.0)
+            self.assertEqual(overlay.EXPANDED_W, 200.0)
+            self.assertEqual(overlay.EXPANDED_H, 180.0)
+            self.assertEqual(overlay.EXPANDED_RAD, 35.0)
+            self.assertEqual((overlay.INPUT_X, overlay.INPUT_Y, overlay.INPUT_W, overlay.INPUT_H), (15, 128, 170, 38))
+
+            overlay.enter_password_mode("Unable to detect face")
+            self.assertEqual(overlay.phase, OverlayPhase.PASSWORD_ENTRY)
+            self.assertEqual(overlay.target_w, 200.0)
+            self.assertEqual(overlay.target_h, 180.0)
+            self.assertEqual(overlay.target_rad, 35.0)
+
+            # Wrong password triggers shake and error message
+            overlay.pwd_entry.set_text("wrong_pwd")
+            overlay._on_password_submit(None)
+            self.assertTrue(overlay._status_is_error)
+            self.assertEqual(overlay._status_text, "Incorrect password")
+            self.assertNotEqual(overlay._pwd_result, "verified")
+
+            # Correct password verifies cleanly
+            overlay.pwd_entry.set_text("samay09")
+            overlay._on_password_submit(None)
+            self.assertEqual(overlay._pwd_result, "verified")
+            self.assertEqual(overlay.phase, OverlayPhase.SUCCESS)
+        finally:
+            overlay.clean_close()
 
 
 class TestAppLockWatcherSpeed(unittest.TestCase):

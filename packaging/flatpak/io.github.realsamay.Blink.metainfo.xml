@@ -44,6 +44,11 @@
     <keyword>lockscreen</keyword>
   </keywords>
   <releases>
+    <release version="2.2.9" date="2026-11-25">
+      <description>
+        <p>Smooth in-pill expansion from the Face ID scanning animation into the 200x180 Figma password entry card when face detection fails (with click-to-retry padlock), instant foreground window raise/focus on unlock, and smart Blink Lock features (1-click Quick Re-Lock history, drag-and-drop vault encryption, auto re-lock on screen lock, and instant panic lock).</p>
+      </description>
+    </release>
     <release version="2.2.8" date="2026-11-25">
       <description>
         <p>Fix file and folder unlock execution with Dynamic Island top notch overlay, resolve background daemon app interception NameErrors, fix archive permission handling, and add robust service restart on upgrade.</p>

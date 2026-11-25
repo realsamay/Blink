@@ -1476,11 +1476,17 @@ class SettingsWindow(Gtk.Window):
         # 3. Section: Encrypted Vault (Files & Folders)
         page.pack_start(self._create_group_heading("Encrypted Vault (Files & Folders)"), False, False, 0)
         self.group_vault = self._create_inset_group()
+        self.group_vault.drag_dest_set(
+            Gtk.DestDefaults.ALL,
+            [Gtk.TargetEntry.new("text/uri-list", 0, 0)],
+            Gdk.DragAction.COPY
+        )
+        self.group_vault.connect("drag-data-received", self._on_vault_drag_data_received)
         page.pack_start(self.group_vault, False, False, 0)
         self._refresh_vault_rows()
 
         page.pack_start(self._create_group_footnote(
-            "Items in the vault are encrypted with military-grade AES-256-GCM. You can also right-click any item in your file manager and select 'Lock with Blink'."
+            "Items in the vault are encrypted with military-grade AES-256-GCM. Drag and drop any file or folder here to lock it, or right-click in your file manager."
         ), False, False, 0)
 
         # 4. Section: Lock Preferences
@@ -1499,6 +1505,27 @@ class SettingsWindow(Gtk.Window):
         combo_grace.connect("changed", self._on_grace_period_changed)
         self._add_inset_row(group_prefs, "Unlock session grace period", "How long an app stays unlocked before requiring a new face scan", combo_grace)
 
+        sw_auto_relock = Gtk.Switch()
+        sw_auto_relock.set_valign(Gtk.Align.CENTER)
+        sw_auto_relock.set_active(self.lock_mgr.get_auto_relock_on_screen_lock())
+        sw_auto_relock.connect("state-set", self._on_auto_relock_toggled)
+        self._add_inset_row(
+            group_prefs,
+            "Auto re-lock vault on screen lock",
+            "Automatically re-encrypt recently unlocked folders and files when your screen locks",
+            sw_auto_relock
+        )
+
+        btn_lock_sessions = Gtk.Button(label="🔒 Re-Lock Now")
+        btn_lock_sessions.get_style_context().add_class("btn-macos")
+        btn_lock_sessions.connect("clicked", self._on_lock_sessions_now_clicked)
+        self._add_inset_row(
+            group_prefs,
+            "Instant Panic Lock",
+            "Immediately revoke all unlocked app grace sessions and re-lock recent vault items",
+            btn_lock_sessions
+        )
+
         self.btn_install_ctx = Gtk.Button(label="Install Context Menu")
         self.btn_install_ctx.get_style_context().add_class("btn-macos")
         self.btn_install_ctx.connect("clicked", self._on_install_context_menu_clicked)
@@ -1515,6 +1542,53 @@ class SettingsWindow(Gtk.Window):
         active_id = combo.get_active_id()
         if active_id:
             self.lock_mgr.set_grace_period(int(active_id))
+
+    def _on_auto_relock_toggled(self, switch: Gtk.Switch, state: bool) -> bool:
+        self.lock_mgr.set_auto_relock_on_screen_lock(state)
+        return False
+
+    def _on_lock_sessions_now_clicked(self, button: Gtk.Button) -> None:
+        self.lock_mgr.revoke_all_app_sessions()
+        relocked = self.lock_mgr.relock_recent_items()
+        self._refresh_vault_rows()
+        button.set_label(f"✓ Locked ({relocked} items)" if relocked else "✓ Sessions Locked")
+        GLib.timeout_add(1800, lambda: (button.set_label("🔒 Re-Lock Now"), False)[1])
+
+    def _on_vault_drag_data_received(self, widget, drag_context, x, y, data, info, time_val) -> None:
+        uris = data.get_uris()
+        if not uris:
+            return
+        from urllib.parse import unquote, urlparse
+        changed = False
+        for uri in uris:
+            try:
+                parsed = urlparse(uri)
+                if parsed.scheme != "file":
+                    continue
+                path_str = unquote(parsed.path)
+                if not path_str or not os.path.exists(path_str):
+                    continue
+                if self.lock_mgr.is_path_locked(path_str):
+                    self._on_unlock_vault_item({"locked_path": path_str, "name": Path(path_str).name})
+                else:
+                    self.lock_mgr.lock_path(path_str)
+                    changed = True
+            except Exception as e:
+                self._show_error_dialog(f"Failed processing dropped item:\n{e}")
+        if changed:
+            self._refresh_vault_rows()
+
+    def _on_relock_recent_item(self, path_str: str) -> None:
+        try:
+            if os.path.exists(path_str) and not self.lock_mgr.is_path_locked(path_str):
+                self.lock_mgr.lock_path(path_str)
+        except Exception as e:
+            self._show_error_dialog(f"Failed to re-lock item:\n{e}")
+        self._refresh_vault_rows()
+
+    def _on_dismiss_recent_item(self, path_str: str) -> None:
+        self.lock_mgr.dismiss_recent_unlocked(path_str)
+        self._refresh_vault_rows()
 
     def _on_install_context_menu_clicked(self, button: Gtk.Button) -> None:
         self.lock_mgr.install_context_menus()
@@ -1711,11 +1785,13 @@ class SettingsWindow(Gtk.Window):
             self.group_vault.remove(child)
 
         items = self.lock_mgr.get_locked_items()
-        if not items:
+        recent_unlocked = self.lock_mgr.get_recent_unlocked()
+
+        if not items and not recent_unlocked:
             self._add_inset_row(
                 self.group_vault,
                 "Vault is Empty",
-                "Lock any file or folder using the buttons below or right-click in your file manager"
+                "Drag & drop any file/folder here, use the buttons below, or right-click in your file manager"
             )
         else:
             for it in items:
@@ -1742,6 +1818,31 @@ class SettingsWindow(Gtk.Window):
                     self.group_vault,
                     f"{prefix}{name}",
                     f"{itype} • {sz_str} • {orig_str}",
+                    h_ctrl
+                )
+
+            for rec in recent_unlocked:
+                rpath = rec.get("path", "")
+                rname = rec.get("name", Path(rpath).name)
+                rtype = rec.get("type", "file").capitalize()
+
+                h_ctrl = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+
+                btn_relock = Gtk.Button(label="🔒 Re-Lock")
+                btn_relock.get_style_context().add_class("btn-macos")
+                btn_relock.connect("clicked", lambda b, p=rpath: self._on_relock_recent_item(p))
+                h_ctrl.pack_start(btn_relock, False, False, 0)
+
+                btn_dismiss = Gtk.Button(label="✕")
+                btn_dismiss.get_style_context().add_class("btn-macos")
+                btn_dismiss.connect("clicked", lambda b, p=rpath: self._on_dismiss_recent_item(p))
+                h_ctrl.pack_start(btn_dismiss, False, False, 0)
+
+                prefix = "📂 " if rtype == "Folder" else "📄 "
+                self._add_inset_row(
+                    self.group_vault,
+                    f"{prefix}{rname} (Recently Unlocked)",
+                    f"Click Re-Lock to encrypt again • {rpath}",
                     h_ctrl
                 )
 

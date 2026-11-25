@@ -118,7 +118,12 @@ class FaceUnlockCoordinator:
         self.app_lock_watcher.stop_watcher()
         self.stop_all_active()
 
-    def authenticate_face(self, purpose: str = "Blink Lock", timeout: float = 4.0) -> bool:
+    def authenticate_face(
+        self,
+        purpose: str = "Blink Lock",
+        timeout: float = 2.2,
+        keep_overlay_on_fail: bool = False,
+    ) -> bool:
         """Synchronously triggers desktop Face ID verification with Dynamic Island card animation.
         Returns True if face matches and liveness passes, False otherwise.
         """
@@ -140,7 +145,7 @@ class FaceUnlockCoordinator:
         started = self.camera.start(device_index=self.settings.camera_index)
         if not started:
             print("[Coordinator] Could not start camera.")
-            if self.overlay:
+            if self.overlay and not keep_overlay_on_fail:
                 if not IS_WINDOWS and GLib is not None:
                     GLib.idle_add(self.overlay.finish_failure)
                 elif IS_WINDOWS:
@@ -220,29 +225,40 @@ class FaceUnlockCoordinator:
                 print(f"[Coordinator] Biometric authentication confirmed for '{purpose}'.")
                 if self.overlay:
                     if not IS_WINDOWS and GLib is not None:
-                        GLib.idle_add(self.overlay.finish_success)
+                        GLib.idle_add(self.overlay.finish_success, 340)
                     elif IS_WINDOWS:
                         self.overlay.finish_success()
-                t_end = time.time() + 0.60
+                # Release camera asynchronously so app/folder unlocks immediately
+                threading.Thread(target=self.camera.stop, daemon=True).start()
+                t_end = time.time() + (0.14 if not IS_WINDOWS else 0.50)
                 while time.time() < t_end:
                     _pump_events()
-                    time.sleep(0.016)
+                    time.sleep(0.012)
             else:
                 print(f"[Coordinator] Biometric authentication failed/timed out for '{purpose}'.")
-                if self.overlay:
-                    if not IS_WINDOWS and GLib is not None:
-                        GLib.idle_add(self.overlay.finish_failure)
-                    elif IS_WINDOWS:
-                        self.overlay.finish_failure()
-                t_end = time.time() + 0.80
-                while time.time() < t_end:
+                if keep_overlay_on_fail and not IS_WINDOWS:
+                    # Keep overlay visible so it morphs smoothly into expanded password card
+                    threading.Thread(target=self.camera.stop, daemon=True).start()
                     _pump_events()
-                    time.sleep(0.016)
+                else:
+                    if self.overlay:
+                        if not IS_WINDOWS and GLib is not None:
+                            GLib.idle_add(self.overlay.finish_failure)
+                        elif IS_WINDOWS:
+                            self.overlay.finish_failure()
+                    t_end = time.time() + 0.80
+                    while time.time() < t_end:
+                        _pump_events()
+                        time.sleep(0.016)
 
         finally:
-            self.camera.stop()
-            if self.overlay:
-                if not IS_WINDOWS and GLib is not None:
+            if not (keep_overlay_on_fail and not verified and not IS_WINDOWS) and not verified:
+                self.camera.stop()
+            if self.overlay and not (keep_overlay_on_fail and not verified and not IS_WINDOWS):
+                if verified and not IS_WINDOWS:
+                    # Let finish_success auto-dismiss timer close cleanly while app unminimizes immediately
+                    pass
+                elif not IS_WINDOWS and GLib is not None:
                     GLib.idle_add(self.overlay.clean_close)
                 elif IS_WINDOWS:
                     self.overlay.clean_close()
@@ -258,25 +274,69 @@ class FaceUnlockCoordinator:
     ) -> bool:
         """
         Attempts Face ID with Top Notch Dynamic Island overlay under the camera.
-        If Face ID fails after max_attempts, opens the clean Blink UI password fallback dialog.
+        On Linux, if Face ID fails or cannot detect a face, smoothly expands the
+        pill itself into the password entry card instead of spawning a separate popup.
         """
         print(f"[Coordinator] Biometric authentication requested for '{target_name}' (max face attempts: {max_attempts})...")
 
-        for attempt in range(1, max_attempts + 1):
-            print(f"[Coordinator] Face ID attempt {attempt}/{max_attempts} for '{target_name}'...")
-            verified = self.authenticate_face(purpose=target_name, timeout=3.0)
-            if verified:
-                print(f"[Coordinator] Face ID verified on attempt {attempt} for '{target_name}'.")
-                return True
-            if attempt < max_attempts:
-                time.sleep(0.3)
+        if IS_WINDOWS:
+            for attempt in range(1, max_attempts + 1):
+                print(f"[Coordinator] Face ID attempt {attempt}/{max_attempts} for '{target_name}'...")
+                verified = self.authenticate_face(purpose=target_name, timeout=3.0)
+                if verified:
+                    return True
+                if attempt < max_attempts:
+                    time.sleep(0.3)
+            from blink.ui.password_dialog import BlinkPasswordDialog
+            return BlinkPasswordDialog.prompt(target_name=target_name, target_icon=target_icon)
 
-        print(f"[Coordinator] Face ID verification attempts exhausted for '{target_name}'. Opening password fallback modal...")
-        from blink.ui.password_dialog import BlinkPasswordDialog
-        return BlinkPasswordDialog.prompt(target_name=target_name, target_icon=target_icon)
+        # Linux: fast single-session biometric scan -> smooth in-pill password expansion
+        scan_timeout = min(2.2, max(1.4, float(self.settings.face_detection_seconds)))
+        while True:
+            try:
+                verified = self.authenticate_face(
+                    purpose=target_name,
+                    timeout=scan_timeout,
+                    keep_overlay_on_fail=True,
+                )
+            except TypeError:
+                verified = self.authenticate_face(target_name, scan_timeout)
+
+            if verified:
+                print(f"[Coordinator] Face ID verified for '{target_name}'.")
+                return True
+
+            print(f"[Coordinator] Face not detected for '{target_name}'. Expanding notch pill to password entry...")
+            overlay = self.ensure_overlay()
+            if overlay is not None and hasattr(overlay, "prompt_password"):
+                outcome = overlay.prompt_password(
+                    reason_text="Unable to detect face",
+                    target_name=target_name,
+                )
+                if outcome == "verified":
+                    if threading.current_thread() == threading.main_thread() and Gtk is not None:
+                        t_end = time.time() + 0.08
+                        while time.time() < t_end:
+                            while Gtk.events_pending():
+                                Gtk.main_iteration_do(False)
+                            time.sleep(0.012)
+                    return True
+                elif outcome == "retry_face":
+                    continue
+                else:
+                    return False
+            else:
+                from blink.ui.password_dialog import BlinkPasswordDialog
+                return BlinkPasswordDialog.prompt(target_name=target_name, target_icon=target_icon)
 
     def _handle_locked(self) -> None:
         self.settings = BlinkSettings.load()
+        # Smart security: re-lock all temporary app unlock sessions whenever screen locks
+        if hasattr(self, "lock_manager") and self.lock_manager:
+            self.lock_manager.revoke_all_app_sessions()
+            if not IS_WINDOWS and self.lock_manager.get_auto_relock_on_screen_lock():
+                threading.Thread(target=self.lock_manager.relock_recent_items, daemon=True).start()
+
         if not self.settings.is_face_unlock_enabled:
             print("[Coordinator] Screen locked, but Face Unlock is disabled in settings. Skipping.")
             self.stop_all_active()

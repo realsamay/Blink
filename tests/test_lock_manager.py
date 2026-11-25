@@ -15,12 +15,17 @@ from blink.core.crypto import SecureCredentialManager
 
 class TestBlinkLockManager(unittest.TestCase):
     def setUp(self):
+        from unittest.mock import patch
         self.temp_dir = tempfile.mkdtemp(prefix="blink_lock_test_")
+        self._store_patch = patch("blink.core.lock_manager.LOCK_STORE_FILE", Path(self.temp_dir) / "locked_items.json")
+        self._store_patch.start()
         self.mgr = BlinkLockManager.get_instance()
+        self.mgr._ensure_store()
         # Ensure session key is available
         SecureCredentialManager.unlock_session()
 
     def tearDown(self):
+        self._store_patch.stop()
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
 
@@ -89,6 +94,27 @@ class TestBlinkLockManager(unittest.TestCase):
         # Remove app
         self.mgr.remove_locked_app(app_key)
         self.assertFalse(self.mgr.is_app_locked(app_key))
+
+    def test_recent_unlocked_and_relock(self):
+        temp_doc = Path(self.temp_dir) / "quick_relock.txt"
+        temp_doc.write_bytes(b"Quick re-lock payload check")
+
+        rec = self.mgr.lock_path(temp_doc)
+        self.assertTrue(self.mgr.is_path_locked(rec["locked_path"]))
+
+        restored = self.mgr.unlock_path(rec["locked_path"])
+        recents = self.mgr.get_recent_unlocked()
+        self.assertTrue(any(Path(r["path"]).resolve() == Path(restored).resolve() for r in recents))
+
+        count = self.mgr.relock_recent_items()
+        self.assertEqual(count, 1)
+        self.assertTrue(self.mgr.is_path_locked(temp_doc))
+
+        # Re-unlock and dismiss so cleanup is clean
+        self.mgr.unlock_path(temp_doc)
+        self.mgr.dismiss_recent_unlocked(temp_doc)
+        recents_after = self.mgr.get_recent_unlocked()
+        self.assertFalse(any(Path(r["path"]).resolve() == temp_doc.resolve() for r in recents_after))
 
 
 if __name__ == "__main__":
