@@ -526,7 +526,7 @@ Terminal=false
                 for member in tar.getmembers():
                     member_path = (lp / member.name).resolve()
                     if not str(member_path).startswith(str(lp)):
-                        raise SecurityError(f"Malicious archive member path detected: {member.name}")
+                        raise PermissionError(f"Malicious archive member path detected: {member.name}")
                 if sys.version_info >= (3, 12):
                     try:
                         tar.extractall(path=lp, filter="data")
@@ -548,7 +548,7 @@ Terminal=false
                 for member in tar.getmembers():
                     member_path = (dest_target / member.name).resolve()
                     if not str(member_path).startswith(str(dest_target)):
-                        raise SecurityError(f"Malicious archive member path detected: {member.name}")
+                        raise PermissionError(f"Malicious archive member path detected: {member.name}")
                 if sys.version_info >= (3, 12):
                     try:
                         tar.extractall(path=dest_target, filter="data")

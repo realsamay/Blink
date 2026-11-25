@@ -8,6 +8,7 @@ import argparse
 import os
 import sys
 import signal
+import subprocess
 from pathlib import Path
 
 # Ensure project root is always in sys.path regardless of execution context
@@ -236,6 +237,8 @@ def run_shield_command(
 ) -> None:
     from blink.core.lock_manager import BlinkLockManager
     from blink.core.app_discovery import get_app_info
+    from blink.core.coordinator import FaceUnlockCoordinator
+    from blink.ui.notch_overlay import NotchOverlayWindow
 
     mgr = BlinkLockManager.get_instance()
 

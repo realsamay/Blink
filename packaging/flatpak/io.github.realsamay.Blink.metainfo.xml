@@ -44,6 +44,11 @@
     <keyword>lockscreen</keyword>
   </keywords>
   <releases>
+    <release version="2.2.8" date="2026-11-25">
+      <description>
+        <p>Fix file and folder unlock execution with Dynamic Island top notch overlay, resolve background daemon app interception NameErrors, fix archive permission handling, and add robust service restart on upgrade.</p>
+      </description>
+    </release>
     <release version="2.2.7" date="2026-11-24">
       <description>
         <p>Dynamic Island top notch unlock animation for apps and files, fast in-daemon biometric verification (&lt;400ms), sleek dark Blink password fallback dialog with direct keyboard focus, and automatic real-time sync of file manager locked items in Settings.</p>

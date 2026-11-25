@@ -32,7 +32,20 @@ def restart_service() -> None:
     if IS_WINDOWS:
         return
     try:
-        subprocess.run(["systemctl", "--user", "restart", "blink.service"], check=False)
+        if os.geteuid() == 0:
+            user = os.environ.get("SUDO_USER") or os.environ.get("PKEXEC_UID")
+            if user:
+                try:
+                    import pwd
+                    if user.isdigit():
+                        user = pwd.getpwuid(int(user)).pw_name
+                except Exception:
+                    pass
+                subprocess.run(["runuser", "-u", user, "--", "systemctl", "--user", "restart", "blink.service"], check=False)
+            else:
+                subprocess.run(["systemctl", "--user", "restart", "blink.service"], check=False)
+        else:
+            subprocess.run(["systemctl", "--user", "restart", "blink.service"], check=False)
     except Exception as e:
         print(f"[Updater] Could not restart blink.service: {e}")
 
