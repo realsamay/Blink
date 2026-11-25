@@ -220,10 +220,10 @@ class TestCoordinatorSettingsSync(unittest.TestCase):
 
 class TestBlinkPasswordFallback(unittest.TestCase):
     def test_password_dialog_verification(self):
-        from blink.ui.password_dialog import LinuxBlinkPasswordDialog
         from blink.system.platform_info import IS_WINDOWS
         if IS_WINDOWS:
             return
+        from blink.ui.password_dialog import LinuxBlinkPasswordDialog
         dialog = LinuxBlinkPasswordDialog(target_name="TestApp", standalone_loop=False)
         dialog.pwd_entry.set_text("wrong_pwd")
         dialog._on_submit(None)
