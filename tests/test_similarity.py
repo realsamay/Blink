@@ -6,6 +6,7 @@ from blink.vision.embedder import ArcFaceEmbedder
 
 class TestBiometricMatching(unittest.TestCase):
     def setUp(self):
+        np.random.seed(42)
         self.embedder = ArcFaceEmbedder()
 
     def test_cosine_similarity_identical(self):
@@ -104,8 +105,9 @@ class TestBiometricMatching(unittest.TestCase):
         v_bob /= np.linalg.norm(v_bob)
         bob_samples = []
         for _ in range(6):
-            noise = np.random.randn(512).astype(np.float32) * 0.25
-            sample = v_bob + noise
+            noise = np.random.randn(512).astype(np.float32)
+            noise /= np.linalg.norm(noise)
+            sample = 0.90 * v_bob + 0.10 * noise
             sample /= np.linalg.norm(sample)
             bob_samples.append({"embedding": sample.tolist()})
 
